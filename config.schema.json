@@ -1,0 +1,423 @@
+{
+  "pluginAlias": "zidooPlugin",
+  "pluginType": "platform",
+  "singular": true,
+  "headerDisplay": "This plugin is provided by [carlosgamezvillegas](https://github.com/carlosgamezvillegas/)",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "required": true,
+        "default": "Zidoo Z9X"
+      },
+      "ip": {
+        "title": "IP Address",
+        "type": "string",
+        "placeholders": "192.168.1.1",
+        "required": true
+      },
+      "mac": {
+        "title": "LAN MAC Address (WOL)",
+        "type": "string",
+        "placeholders": "NI:CO:CA:TA:GA:TA",
+        "required": true
+      },
+      "pollingInterval": {
+        "title": "Polling Interval (milliseconds)",
+        "type": "number",
+        "placeholders": "1000",
+        "required": false
+      },
+      "modelName": {
+        "title": "Model",
+        "type": "string",
+        "placeholders": "UDP-203",
+        "required": false
+      },
+      "manufacturer": {
+        "title": "Manufacturer",
+        "type": "string",
+        "placeholders": "Oppo",
+        "required": false
+      },
+      "serialN": {
+        "title": "Serial Number",
+        "type": "string",
+        "placeholders": "EB1234213F",
+        "required": false
+      },
+      "standby": {
+        "title": "Enable PowerOff mode instead of Standbay Mode",
+        "type": "boolean",
+        "required": false
+      },
+      "newPlatformUUID": {
+        "title": "New Platform UUID",
+        "type": "boolean",
+        "required": false
+      },
+      "mediaButtons": {
+        "title": "Add Media Remote Control buttons (Next, Previous, Forward, Rewind)",
+        "type": "boolean",
+        "required": false
+      },
+      "movieControl": {
+        "title": "Add Video/Song Progress as a dimmer",
+        "type": "boolean",
+        "required": false
+      },
+      "cursorUpB": {
+        "title": "Add the Cursor Up button",
+        "type": "boolean",
+        "required": false
+      },
+      "cursorDownB": {
+        "title": "Add the Cursor Down button",
+        "type": "boolean",
+        "required": false
+      },
+      "cursorLeftB": {
+        "title": "Add the Cursor Left button",
+        "type": "boolean",
+        "required": false
+      },
+      "cursorRightB": {
+        "title": "Add the Cursor Right button",
+        "type": "boolean",
+        "required": false
+      },
+      "cursorEnterB": {
+        "title": "Add the Enter button",
+        "type": "boolean",
+        "required": false
+      },
+      "menuB": {
+        "title": "Add the Menu button",
+        "type": "boolean",
+        "required": false
+      },
+      "backButtonB": {
+        "title": "Add the Back button",
+        "type": "boolean",
+        "required": false
+      },
+      "homeMenuB": {
+        "title": "Add the Home Menu button",
+        "type": "boolean",
+        "required": false
+      },
+      "infoB": {
+        "title": "Add the Info button",
+        "type": "boolean",
+        "required": false
+      },
+      "pageUpB": {
+        "title": "Add the Page Up button",
+        "type": "boolean",
+        "required": false
+      },
+      "pageDownB": {
+        "title": "Add the Page Down button",
+        "type": "boolean",
+        "required": false
+      },
+      "popUpMenuB": {
+        "title": "Add the Pop Up Menu button",
+        "type": "boolean",
+        "required": false
+      },
+      "redB": {
+        "title": "Add the Red button",
+        "type": "boolean",
+        "required": false
+      },
+      "yellowB": {
+        "title": "Add the Yellow button",
+        "type": "boolean",
+        "required": false
+      },
+      "blueB": {
+        "title": "Add the Blue button",
+        "type": "boolean",
+        "required": false
+      },
+      "greenB": {
+        "title": "Add the Green button",
+        "type": "boolean",
+        "required": false
+      },
+      "audioB": {
+        "title": "Add the Audio button",
+        "type": "boolean",
+        "required": false
+      },
+      "subtitleB": {
+        "title": "Add the Subtitle button",
+        "type": "boolean",
+        "required": false
+      },
+      "repeatB": {
+        "title": "Add the Repeat button",
+        "type": "boolean",
+        "required": false
+      },
+      "pipB": {
+        "title": "Add the PIP button",
+        "type": "boolean",
+        "required": false
+      },
+      "resolutionB": {
+        "title": "Add the Resolution button",
+        "type": "boolean",
+        "required": false
+      },
+      "powerB": {
+        "title": "Add the Power button",
+        "type": "boolean",
+        "required": false
+      },
+      "muteB": {
+        "title": "Add the Mute button",
+        "type": "boolean",
+        "required": false
+      },
+      "recordB": {
+        "title": "Add the Record button",
+        "type": "boolean",
+        "required": false
+      },
+      "movieB": {
+        "title": "Add the Movie button",
+        "type": "boolean",
+        "required": false
+      },
+      "musicB": {
+        "title": "Add the Music button",
+        "type": "boolean",
+        "required": false
+      },
+      "photoB": {
+        "title": "Add the Photo button",
+        "type": "boolean",
+        "required": false
+      },
+      "fileB": {
+        "title": "Add the File button",
+        "type": "boolean",
+        "required": false
+      },
+      "lightB": {
+        "title": "Add the Light button",
+        "type": "boolean",
+        "required": false
+      },
+      "ScreenshotB": {
+        "title": "Add the Screenshot button",
+        "type": "boolean",
+        "required": false
+      },
+      "appSwitchB": {
+        "title": "Add the App Switch button",
+        "type": "boolean",
+        "required": false
+      }
+    }
+  },
+  "layout": [
+    {
+      "type": "flex",
+      "flex-flow": "row wrap",
+      "items": [
+        {
+          "type": "flex",
+          "flex-flow": "column",
+          "items": [
+            "name"
+          ]
+        },
+        {
+          "type": "flex",
+          "flex-flow": "column",
+          "items": [
+            "ip"
+          ]
+        },
+        {
+          "type": "flex",
+          "flex-flow": "column",
+          "items": [
+            "mac"
+          ]
+        },
+        {
+          "type": "flex",
+          "flex-flow": "column",
+          "items": [
+            "pollingInterval"
+          ]
+        },
+        {
+          "type": "flex",
+          "flex-flow": "column",
+          "items": [
+            "modelName"
+          ]
+        },
+        {
+          "type": "flex",
+          "flex-flow": "column",
+          "items": [
+            "manufacturer"
+          ]
+        },
+        {
+          "type": "flex",
+          "flex-flow": "column",
+          "items": [
+            "serialN"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Optional Services",
+      "expandable": true,
+      "expanded": true,
+      "items": [
+        {
+          "key": "mediaButtons"
+        },
+        {
+          "key": "standby"
+        },
+        {
+          "key": "movieControl"
+        }
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Navegation Buttons",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        {
+          "key": "cursorUpB"
+        },
+        {
+          "key": "cursorDownB"
+        },
+        {
+          "key": "cursorLeftB"
+        },
+        {
+          "key": "cursorRightB"
+        },
+        {
+          "key": "cursorEnterB"
+        },
+        {
+          "key": "menuB"
+        },
+        {
+          "key": "backButtonB"
+        },
+        {
+          "key": "homeMenuB"
+        },
+        {
+          "key": "infoB"
+        },
+        {
+          "key": "pageUpB"
+        },
+        {
+          "key": "pageDownB"
+        },
+        {
+          "key": "popUpMenuB"
+        }
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Other Buttons",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        {
+          "key": "powerB"
+        },
+        {
+          "key": "redB"
+        },
+        {
+          "key": "yellowB"
+        },
+        {
+          "key": "greenB"
+        },
+        {
+          "key": "blueB"
+        },
+        {
+          "key": "audioB"
+        },
+        {
+          "key": "subtitleB"
+        },
+        {
+          "key": "repeatB"
+        },
+        {
+          "key": "pipB"
+        },
+        {
+          "key": "resolutionB"
+        },
+        {
+          "key": "muteB"
+        },
+        {
+          "key": "recordB"
+        },
+        {
+          "key": "movieB"
+        },
+        {
+          "key": "musicB"
+        },
+        {
+          "key": "photoB"
+        },
+        {
+          "key": "fileB"
+        },
+        {
+          "key": "lightB"
+        },
+        {
+          "key": "screenshotB"
+        },
+        {
+          "key": "appSwitchB"
+        }
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Troubleshooting",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        {
+          "key": "newPlatformUUID",
+          "description": "Enable this if you do not see the accessory when you try to add it to the Home App. Note that it will create a new accesssory if the name of the device is changed in Settings. Old accesories must be removed manually in the Home app."
+        }
+      ]
+    }
+  ]
+}
