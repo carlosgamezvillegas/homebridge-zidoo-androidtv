@@ -151,7 +151,7 @@ This will enable additional extra log which might be helpful to debug all kind o
 Note: Controls won't update if the plugin does not receive a confirmation message from the device
 
 ## Known Issues
-Turn in on the Zidoo device only works by Wakeup On Land, so you have to connec the device with an ethernet cable to gain full control of the Zidoo device
+Turning On the Zidoo device only works by Wakeup On Land, so you have to connec the device with an ethernet cable to gain full control of the Zidoo device
 
 ## Special thanks
 To Fernando for his patience and support.
