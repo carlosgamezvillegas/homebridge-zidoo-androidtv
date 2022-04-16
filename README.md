@@ -2,12 +2,11 @@
 
 # homebridge-zidoo-androidtv
 ## HomeKit integration for Zidoo
-
 </span>
 
 # What is this?
 
-`homebrige-zidoo-androidtv` is a plugin for Homebridge to Control your Zidoo Z9X from your Home app. It should work with all Zidoos that support IP ontrols.
+`homebrige-zidoo-androidtv` is a plugin for Homebridge to Control your Zidoo Z9X/205 from your Home app. It should work with most Zidoo boxes.
 
 
 ### Features
@@ -15,17 +14,17 @@
 * HomeKit automations
 * Turn TV on/off
 * Play, Pause, and Stop switches
-* Media details in "Input Selector" wheel
 ### Optional Features
+* Volume control (buttons or through iOS remote app) 
 * Media control
 * Movie Progress control
 * Navegation Control (Stateless switches)
+* Input control
 * The rests of the Remote buttons (Stateless switches)
 
 # Preparation
-1. Connect the Zidoo device to the internet and get the IP addres
+1. Connect the Zidoo device to the internet and get the IP address
 2. To be able to turn on the devices it needds to be connected to the local network with an ethernet cable and get the LAN IP address and the LAN MAC address
-3.
 
 # Installation
 install using the following command in terminal:
@@ -47,10 +46,11 @@ Example configuration:
             "ip": "Youre IP Address", 
             "mac": "LAN MAC address", 
             "pollingInterval": 1000,
-            "modelName": "UDP-203",
+            "modelName": "Z9X",
             "manufacturer": "Zidoo Inc",
             "serialN": "B210U71647033894",
             "mediaButtons": false,
+            "inputButtons":false,
             "movieControl": false,
             "<NameOfTheButton>": false,
             "newPlatformUUID":false,
@@ -112,8 +112,8 @@ Button Name List is :
 - redB
 - yellowB
 - blueB
-- audioB
 - greenB
+- audioB
 - subtitleB
 - repeatB 
 - pipB 
@@ -148,10 +148,10 @@ Deep debug log, add the following to your config.json:
 ```
 This will enable additional extra log which might be helpful to debug all kind of issues. Just be aware that this will produce a lot of log information so it is recommended to use a service like https://pastebin.com/ when providing the log for inspection.
 
-Note: Controls won't update if the plugin does not receive a confirmation message from the device
+Note: Controls won't update if the plugin does not receive a confirmation message from the device.
 
 ## Known Issues
-Turning On the Zidoo device only works by Wakeup On Land, so you have to connec the device with an ethernet cable to gain full control of the Zidoo device
+Turning on the Zidoo device only works by Wake up On Land (WOL), so the device needs an ethernet connection in order to gain full control of the Zidoo device.
 
 ## Special thanks
 To Fernando for his patience and support.
