@@ -76,8 +76,8 @@ class zidooAccessory {
         this.playBackState = [false, false, false];
         this.inputState = [false, false, false, false, false, false];
         this.powerStateTV = 0;
-        this.currentVolume = 0;
-        this.currentMuteState = true;
+        this.currentVolume = 100;
+        this.currentMuteState = false;
         this.inputID = 1;
         this.mediaState = 4;
         this.videoState = false;
@@ -102,7 +102,7 @@ class zidooAccessory {
         this.config.ip = platform.config.ip;
         this.config.manufacturer = platform.config.manufacturer || 'Zidoo';
         this.config.pollingInterval = platform.config.pollingInterval || 1000;
-        this.config.modelName = platform.config.modelName || 'Z9x';
+        this.config.modelName = platform.config.modelName || 'Z9X';
         this.config.serialN = platform.config.serialN || 'B210U71647033894';
         this.config.mac = platform.config.mac || 'CA:TA:NI:CO:GA:TA';
         this.config.standby = platform.config.standby || true;
@@ -139,6 +139,7 @@ class zidooAccessory {
         this.config.lightB = platform.config.lightB || false;
         this.config.screenshotB = platform.config.screenshotB || false;
         this.config.appSwitchB = platform.config.appSwitchB || false;
+        this.config.rebootB = platform.config.rebootB || false;
 
         ////Checking if the necessary information was given by the user////////////////////////////////////////////////////
         try {
@@ -172,11 +173,20 @@ class zidooAccessory {
             .on('set', (newValue, callback) => {
                 this.platform.log.debug('Set Zidoo Active to: ' + newValue);
                 if (newValue === 1) {
+                    this.newPowerState(true);
+                    this.turnOnCommand = true;
+                    this.turnOffCommand = false;
                     this.WakeupOnLAN();
                     // this.sending([this.pressedButton('POWER ON')]);
                 }
                 else {
+                    this.sending([this.pressedButton('STOP')]);
+                    this.newPowerState(false);
+                    this.turnOffCommand = true;
+                    this.turnOnCommand = false;
+                    this.turnOffAll();
                     this.sending([this.pressedButton('POWER OFF')]);
+
                 }
                 callback(null);
             });
@@ -468,8 +478,13 @@ class zidooAccessory {
             })
             .on('set', (newValue, callback) => {
                 this.sending([this.pressedButton('MUTE')]);
-                this.platform.log.debug('Volume Value set to: Mute');
-
+                this.platform.log.debug('Volume Value set to: Mute/Unmute');
+                if (this.currentMuteState === false) {
+                    this.currentMuteState = true
+                }
+                if (this.currentMuteState === true) {
+                    this.currentMuteState = false
+                }
                 callback(null);
             });
         this.speakerService.addCharacteristic(this.platform.Characteristic.Volume)
@@ -478,8 +493,8 @@ class zidooAccessory {
                 callback(null, currentValue);
             })
             .on('set', (newValue, callback) => {
-                this.sending([this.volumeChange(newValue)]);
-                this.platform.log.debug('Volume Value set to: ' + newValue);
+                //this.sending([this.volumeChange(newValue)]);
+                //this.platform.log.debug('Volume Value set to: ' + newValue);
                 callback(null);
             });
         this.tvService.addLinkedService(this.speakerService);
@@ -1222,6 +1237,26 @@ class zidooAccessory {
                     callback(null);
                 });
         }
+        if (this.config.rebootB === true) {
+            this.rebootB = this.accessory.getService('Reboot') ||
+                this.accessory.addService(this.platform.Service.Switch, 'Reboot', 'CataNicoGaTa-X09');
+            this.rebootB.getCharacteristic(this.platform.Characteristic.On)
+                .on('get', (callback) => {
+                    this.platform.log.debug('Reboot GET On');
+                    let currentValue = false;
+                    callback(null, currentValue);
+                })
+                .on('set', (value, callback) => {
+                    this.platform.log.debug('Reboot SET On:', value);
+                    if (value === true) {
+                        this.sending([this.pressedButton('REBOOT')]);
+                    }
+                    setTimeout(() => {
+                        this.rebootB.updateCharacteristic(this.platform.Characteristic.On, false);
+                    }, this.statelessTimeOut);
+                    callback(null);
+                });
+        }
 
         ///////////////Clean up. Delete services not in used////////////////////////////////
 
@@ -1332,11 +1367,14 @@ class zidooAccessory {
         if (this.config.appSwitchB === false) {
             this.accessory.removeService(this.appSwitch);
         }
+        if (this.config.rebootB === false) {
+            this.accessory.removeService(this.rebootB);
+        }
         //////////////////Connecting to Zidoo
         // this.udpServer();
         //syncing////////////////////////////////////////////////////////////////////////////////////////
         setInterval(() => {
-            if (this.turnOffCommand === false) {
+            if (this.turnOffCommand === false && this.turnOnCommand === false) {
                 this.sending([this.query('MUSIC STATUS')]);
                 setTimeout(() => {
                     this.sending([this.query('GET MODEL INFO')]);
@@ -1350,6 +1388,7 @@ class zidooAccessory {
                 if (this.httpNotResponding >= this.reconnectionTry) {
                     this.turnOffAll();
                 }
+
                 /*
                                 this.platform.log('Updating');
                                 this.platform.log(this.tvService.getCharacteristic(this.platform.Characteristic.Active).value);
@@ -1380,27 +1419,27 @@ class zidooAccessory {
                 }
                 if (this.videoAudioTitle.getCharacteristic(this.platform.Characteristic.ConfiguredName).value !== this.inputName) {
                     this.platform.log.debug('Updating Title');
-                    // this.videoAudioTitle.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.inputName);
+                    this.videoAudioTitle.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.inputName);
                     this.videoAudioTitle.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.inputName);
                 }
                 if (this.runtime.getCharacteristic(this.platform.Characteristic.ConfiguredName).value !== this.mediaDuration) {
                     this.platform.log.debug('Updating Runtime');
                     this.runtime.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.mediaDuration);
-                    //this.runtime.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.mediaDuration);
+                    this.runtime.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.mediaDuration);
                 }
                 if (this.videoFormat.getCharacteristic(this.platform.Characteristic.ConfiguredName).value !== this.mediaVideoFormat) {
                     this.platform.log.debug('Updating Video Format');
-                    //  this.videoFormat.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.mediaVideoFormat);
+                    this.videoFormat.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.mediaVideoFormat);
                     this.videoFormat.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.mediaVideoFormat);
                 }
                 if (this.audioFormat.getCharacteristic(this.platform.Characteristic.ConfiguredName).value !== this.mediaAudioFormat) {
                     this.platform.log.debug('Updating Audio Format');
-                    //this.audioFormat.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.mediaAudioFormat);
+                    this.audioFormat.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.mediaAudioFormat);
                     this.audioFormat.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.mediaAudioFormat);
                 }
                 if (this.audioLanguage.getCharacteristic(this.platform.Characteristic.ConfiguredName).value !== this.language) {
                     this.platform.log.debug('Updating Language');
-                    // this.audioLanguage.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.language);
+                    this.audioLanguage.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.language);
                     this.audioLanguage.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.language);
                 }
 
@@ -1410,8 +1449,8 @@ class zidooAccessory {
             else {
                 setTimeout(() => {
                     this.turnOffCommand = false;
-
-                }, 60000);
+                    this.turnOnCommand = false;
+                }, 6000);
             }
 
         }, this.config.pollingInterval);
@@ -1442,6 +1481,9 @@ class zidooAccessory {
     setOn(value, callback) {
         let zidooState = value;
         if (zidooState === true) {
+            this.newPowerState(true);
+            this.turnOnCommand = true;
+            this.turnOffCommand = false;
             this.WakeupOnLAN();
             /*
                 this.sending([this.query('GET MODEL INFO')]);
@@ -1451,9 +1493,12 @@ class zidooAccessory {
                 */
         }
         else {
-
-            this.sending([this.pressedButton('POWER OFF')]);
+            this.sending([this.pressedButton('STOP')]);
+            this.newPowerState(false);
+            this.turnOffCommand = true;
+            this.turnOnCommand = false;
             this.turnOffAll();
+            this.sending([this.pressedButton('POWER OFF')]);
         }
         this.platform.log.debug('Set Power to ->', value);
         callback(null);
@@ -1526,6 +1571,9 @@ class zidooAccessory {
         else if (url.includes('getModel')) {
             key = 'getModel';
         }
+        else if (url.includes('seek')) {
+            key = 'seek'
+        }
         else {
             let key1 = url.split('=');
             key = key1[1];
@@ -1555,43 +1603,46 @@ class zidooAccessory {
     //////////Current Status//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     newAudioStatus(audio) {
         this.platform.log.debug(audio);
-        let thisAudio = '';
+        let audioFormat = '';
         if (audio.includes('Digital Plus')) {
-            thisAudio = 'Dolby Digital Plus';
+            audioFormat = 'Dolby Digital Plus';
         }
         else if (audio.includes('Dolby Digital')) {
-            thisAudio = 'Dolby Digital';
+            audioFormat = 'Dolby Digital';
         }
         else if (audio.includes('TrueHD')) {
-            thisAudio = 'Dolby TrueHD-Atmos';
+            audioFormat = 'Dolby TrueHD-Atmos';
         }
         else if (audio.includes('DTS-HD High')) {
-            thisAudiot = 'DTS-HD High Resolution';
+            audioFormat = 'DTS-HD High Resolution';
         }
-        else if (audio.includes('DTS-HD Master')) {
-            thisAudiot = 'DTS-HD MA- DTSX';
+        else if (audio.includes('DTS-HD Master') || audio.includes('DTS-HD MA')) {
+            audioFormat = 'DTS-HD MA - DTS X';
+        }
+        else if (audio.includes('DTS-HD')) {
+            audioFormat = 'DTS-HD';
         }
         else if (audio.includes('DTS')) {
-            thisAudio = 'DTS';
+            audioFormat = 'DTS';
         }
         else if (audio.includes('LPCM')) {
-            thisAudio = 'LPCM';
+            audioFormat = 'LPCM';
 
         }
         else if (audio.includes('MPEG')) {
-            thisAudio = 'MPEG Audio';
+            audioFormat = 'MPEG Audio';
 
         }
         else if (audio.includes('CD Audio')) {
-            thisAudio = 'CD Audio';
+            audioFormat = 'CD Audio';
 
         }
         else {
-            thisAudio = 'Unknown';
+            audioFormat = 'Unknown';
 
         }
 
-        this.newAudioFormat(thisAudio);
+        this.newAudioFormat(audioFormat);
     }
     rightVideoFormat(videoFormat, fps) {
         if (videoFormat.includes('DV')) {
@@ -1610,32 +1661,39 @@ class zidooAccessory {
         this.newVideoFormat(videoFormat + " " + fps + "fps");
     }
     newInputName(newName) {
-        if (this.inputName !== newName) {
-            this.platform.log.debug(newName);
-            this.inputName = newName;
-            this.platform.log.debug(this.inputName);
-            this.videoAudioTitle.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.inputName);
-            // this.videoAudioTitle.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.inputName);
+        if (typeof newName !== 'undefined') {
+            this.platform.log.debug('New input name: ' + newName);
+            if (this.inputName !== newName) {
+                this.platform.log.debug(newName);
+                this.inputName = newName;
+                this.platform.log.debug(this.inputName);
+                this.videoAudioTitle.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.inputName);
+                this.videoAudioTitle.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.inputName);
+            }
         }
     }
     newInputDuration(newDuration) {
-
-        if (this.mediaDuration !== newDuration) {
-            this.platform.log.debug(newDuration);
-            this.mediaDuration = newDuration;
-            this.runtime.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.mediaDuration);
-            // this.runtime.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.mediaDuration);
+        if (typeof newDuration !== 'undefined') {
+            this.platform.log.debug('New input duraiton: ' + newDuration);
+            if (this.mediaDuration !== newDuration) {
+                this.platform.log.debug(newDuration);
+                this.mediaDuration = newDuration;
+                this.runtime.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.mediaDuration);
+                this.runtime.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.mediaDuration);
+            }
         }
-
     }
     newVideoFormat(videoFormat) {
-        this.platform.log.debug(videoFormat);
-        if (this.mediaVideoFormat !== videoFormat) {
+        if (typeof videoFormat !== 'undefined') {
+            this.platform.log.debug('New input progress: ' + videoFormat);
             this.platform.log.debug(videoFormat);
-            this.mediaVideoFormat = videoFormat;
-            this.videoFormat.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.mediaVideoFormat);
-            this.videoFormat.updateCharacteristic(this.platform.Characteristic.TargetVisibilityState, this.showState ? this.platform.Characteristic.TargetVisibilityState.SHOWN : this.platform.Characteristic.TargetVisibilityState.HIDDEN);
-            this.videoFormat.updateCharacteristic(this.platform.Characteristic.CurrentVisibilityState, this.showState ? this.platform.Characteristic.CurrentVisibilityState.SHOWN : this.platform.Characteristic.CurrentVisibilityState.HIDDEN);
+            if (this.mediaVideoFormat !== videoFormat) {
+                this.platform.log.debug(videoFormat);
+                this.mediaVideoFormat = videoFormat;
+                this.videoFormat.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.mediaVideoFormat);
+                this.videoFormat.updateCharacteristic(this.platform.Characteristic.TargetVisibilityState, this.showState ? this.platform.Characteristic.TargetVisibilityState.SHOWN : this.platform.Characteristic.TargetVisibilityState.HIDDEN);
+                this.videoFormat.updateCharacteristic(this.platform.Characteristic.CurrentVisibilityState, this.showState ? this.platform.Characteristic.CurrentVisibilityState.SHOWN : this.platform.Characteristic.CurrentVisibilityState.HIDDEN);
+            }
         }
     }
     newElapsedTime(elapsedTime) {
@@ -1650,23 +1708,28 @@ class zidooAccessory {
         */
     }
     newAudioFormat(audioType) {
-        this.platform.log.debug(audioType);
-        if (this.mediaAudioFormat !== audioType) {
-            this.mediaAudioFormat = audioType;
+        if (typeof audioType !== 'undefined') {
             this.platform.log.debug(audioType);
-            this.audioFormat.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.mediaAudioFormat);
-            this.audioFormat.updateCharacteristic(this.platform.Characteristic.TargetVisibilityState, this.showState ? this.platform.Characteristic.TargetVisibilityState.SHOWN : this.platform.Characteristic.TargetVisibilityState.HIDDEN);
-            this.audioFormat.updateCharacteristic(this.platform.Characteristic.CurrentVisibilityState, this.showState ? this.platform.Characteristic.CurrentVisibilityState.SHOWN : this.platform.Characteristic.CurrentVisibilityState.HIDDEN);
+            this.platform.log.debug('New audio format: ' + audioType);
+            this.platform.log.debug(audioType);
+            if (this.mediaAudioFormat !== audioType) {
+                this.mediaAudioFormat = audioType;
+                this.platform.log.debug(audioType);
+                this.audioFormat.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.mediaAudioFormat);
+                this.audioFormat.updateCharacteristic(this.platform.Characteristic.TargetVisibilityState, this.showState ? this.platform.Characteristic.TargetVisibilityState.SHOWN : this.platform.Characteristic.TargetVisibilityState.HIDDEN);
+                this.audioFormat.updateCharacteristic(this.platform.Characteristic.CurrentVisibilityState, this.showState ? this.platform.Characteristic.CurrentVisibilityState.SHOWN : this.platform.Characteristic.CurrentVisibilityState.HIDDEN);
+            }
         }
     }
     newLanguage(lang) {
-        this.platform.log.debug(lang);
-        if (this.language !== lang) {
-            this.language = lang;
-            this.platform.log.debug(lang);
-            this.audioLanguage.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.language);
-            this.audioLanguage.updateCharacteristic(this.platform.Characteristic.TargetVisibilityState, this.showState ? this.platform.Characteristic.TargetVisibilityState.SHOWN : this.platform.Characteristic.TargetVisibilityState.HIDDEN)
-            this.audioLanguage.updateCharacteristic(this.platform.Characteristic.CurrentVisibilityState, this.showState ? this.platform.Characteristic.CurrentVisibilityState.SHOWN : this.platform.Characteristic.CurrentVisibilityState.HIDDEN);
+        if (typeof lang !== 'undefined') {
+            this.platform.log.debug('New audio language: ' + lang);
+            if (this.language !== lang) {
+                this.language = lang;
+                this.audioLanguage.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.language);
+                this.audioLanguage.updateCharacteristic(this.platform.Characteristic.TargetVisibilityState, this.showState ? this.platform.Characteristic.TargetVisibilityState.SHOWN : this.platform.Characteristic.TargetVisibilityState.HIDDEN)
+                this.audioLanguage.updateCharacteristic(this.platform.Characteristic.CurrentVisibilityState, this.showState ? this.platform.Characteristic.CurrentVisibilityState.SHOWN : this.platform.Characteristic.CurrentVisibilityState.HIDDEN);
+            }
         }
     }
 
@@ -1687,9 +1750,9 @@ class zidooAccessory {
         if (this.currentMovieProgress > 100) { this.currentMovieProgress = 100 }
         if (this.config.movieControl === true) {
             this.movieControlL.updateCharacteristic(this.platform.Characteristic.Brightness, this.currentMovieProgress);
-            // this.movieControlL.getCharacteristic(this.platform.Characteristic.Brightness).updateValue(this.currentMovieProgress);
+            this.movieControlL.getCharacteristic(this.platform.Characteristic.Brightness).updateValue(this.currentMovieProgress);
             this.movieControlL.updateCharacteristic(this.platform.Characteristic.On, this.currentMovieProgressState);
-            // this.movieControlL.getCharacteristic(this.platform.Characteristic.On).updateValue(this.currentMovieProgressState);
+            this.movieControlL.getCharacteristic(this.platform.Characteristic.On).updateValue(this.currentMovieProgressState);
         }
     }
     newPowerState(newValue) {
@@ -1711,41 +1774,42 @@ class zidooAccessory {
     }
     newPlayBackState(newPlay) {
         this.playBackState = newPlay;
-        if (this.playBackState[0] === true) {
-            this.mediaState = 0;
-        }
-        if (this.playBackState[1] === true) {
-            this.mediaState = 1;
-        }
-        if (this.playBackState[2] === true) {
-            this.mediaState = 2;
-        }
-        if (this.playBackState[0] === false && this.playBackState[1] === false && this.playBackState[2] === false) {
-            this.mediaState = 4;
-        }
+        if (this.turnOffCommand === false || this.playBackState === [false, false, false]) {
+            if (this.playBackState[0] === true) {
+                this.mediaState = 0;
+            }
+            if (this.playBackState[1] === true) {
+                this.mediaState = 1;
+            }
+            if (this.playBackState[2] === true) {
+                this.mediaState = 2;
+            }
+            if (this.playBackState[0] === false && this.playBackState[1] === false && this.playBackState[2] === false) {
+                this.mediaState = 4;
+            }
 
-        if (this.tvService.getCharacteristic(this.platform.Characteristic.Active).value !== this.powerStateTV) {
-            this.tvService.updateCharacteristic(this.platform.Characteristic.Active, this.powerStateTV);
+            if (this.tvService.getCharacteristic(this.platform.Characteristic.Active).value !== this.powerStateTV) {
+                this.tvService.updateCharacteristic(this.platform.Characteristic.Active, this.powerStateTV);
+            }
+            if (this.play.getCharacteristic(this.platform.Characteristic.On).value !== this.playBackState[0]) {
+                this.play.updateCharacteristic(this.platform.Characteristic.On, this.playBackState[0]);
+                this.play.getCharacteristic(this.platform.Characteristic.On).updateValue(this.playBackState[0]);
+                this.tvService.updateCharacteristic(this.platform.Characteristic.CurrentMediaState, this.mediaState);
+                this.tvService.getCharacteristic(this.platform.Characteristic.CurrentMediaState).updateValue(this.mediaState);
+            }
+            if (this.pause.getCharacteristic(this.platform.Characteristic.On).value !== this.playBackState[1]) {
+                this.pause.updateCharacteristic(this.platform.Characteristic.On, this.playBackState[1]);
+                this.pause.getCharacteristic(this.platform.Characteristic.On).updateValue(this.playBackState[1]);
+                this.tvService.updateCharacteristic(this.platform.Characteristic.CurrentMediaState, this.mediaState);
+                this.tvService.getCharacteristic(this.platform.Characteristic.CurrentMediaState).updateValue(this.mediaState);
+            }
+            if (this.stop.getCharacteristic(this.platform.Characteristic.On).value !== this.playBackState[2]) {
+                this.stop.updateCharacteristic(this.platform.Characteristic.On, this.playBackState[2]);
+                this.stop.getCharacteristic(this.platform.Characteristic.On).updateValue(this.playBackState[2]);
+                this.tvService.updateCharacteristic(this.platform.Characteristic.CurrentMediaState, this.mediaState);
+                this.tvService.getCharacteristic(this.platform.Characteristic.CurrentMediaState).updateValue(this.mediaState);
+            }
         }
-        if (this.play.getCharacteristic(this.platform.Characteristic.On).value !== this.playBackState[0]) {
-            this.play.updateCharacteristic(this.platform.Characteristic.On, this.playBackState[0]);
-            // this.play.getCharacteristic(this.platform.Characteristic.On).updateValue(this.playBackState[0]);
-            this.tvService.updateCharacteristic(this.platform.Characteristic.CurrentMediaState, this.mediaState);
-            //this.tvService.getCharacteristic(this.platform.Characteristic.CurrentMediaState).updateValue(this.mediaState);
-        }
-        if (this.pause.getCharacteristic(this.platform.Characteristic.On).value !== this.playBackState[1]) {
-            this.pause.updateCharacteristic(this.platform.Characteristic.On, this.playBackState[1]);
-            //this.pause.getCharacteristic(this.platform.Characteristic.On).updateValue(this.playBackState[1]);
-            this.tvService.updateCharacteristic(this.platform.Characteristic.CurrentMediaState, this.mediaState);
-            //this.tvService.getCharacteristic(this.platform.Characteristic.CurrentMediaState).updateValue(this.mediaState);
-        }
-        if (this.stop.getCharacteristic(this.platform.Characteristic.On).value !== this.playBackState[2]) {
-            this.stop.updateCharacteristic(this.platform.Characteristic.On, this.playBackState[2]);
-            // this.stop.getCharacteristic(this.platform.Characteristic.On).updateValue(this.playBackState[2]);
-            this.tvService.updateCharacteristic(this.platform.Characteristic.CurrentMediaState, this.mediaState);
-            //this.tvService.getCharacteristic(this.platform.Characteristic.CurrentMediaState).updateValue(this.mediaState);
-        }
-
     }
     newInputState(newInput) {
         this.inputState = newInput;
@@ -1774,7 +1838,7 @@ class zidooAccessory {
         else {
         }
         this.tvService.updateCharacteristic(this.platform.Characteristic.ActiveIdentifier, this.inputID);
-        // this.tvService.getCharacteristic(this.platform.Characteristic.ActiveIdentifier).updateValue(this.inputID);
+        this.tvService.getCharacteristic(this.platform.Characteristic.ActiveIdentifier).updateValue(this.inputID);
     }
     /////////////////HTTP Event decoder
     httpEventDecoder(rawData, key) {
@@ -1791,32 +1855,28 @@ class zidooAccessory {
                 this.platform.log(`Response: ${this.commandName(key)} Command Executed`);
             }
             if (key.includes('Power')) {
-                this.turnOffCommand = true;
                 this.turnOffAll();
 
             }
-            if (key.includes('MediaPlay')) {
+            else if (key.includes('MediaPlay')) {
                 if (key.includes('MediaPlay.Pause')) {
                 }
                 else {
                     this.newPlayBackState([true, false, false]);
                 }
             }
-            if (key.includes('MediaStop')) {
+            else if (key.includes('MediaStop')) {
                 this.newPlayBackState([false, false, false]);
                 this.mediaDetailsReset();
             }
-            if (key.includes('MediaPasue')) {
+            else if (key.includes('MediaPasue')) {
                 this.newPlayBackState([false, true, false]);
 
             }
-            if (key.includes('getModel')) {
+            else if (key.includes('getModel')) {
                 if (this.turnOffCommand !== true) {
                     this.newPowerState(true);
                 }
-
-
-
             }
             else if (key.includes('getPlayStatus')) {
                 if (this.turnOffCommand !== true) {
@@ -1836,7 +1896,6 @@ class zidooAccessory {
                     this.showState = true;
                 }
                 if (rawData.video.path !== '') {
-                    this.platform.log.debug("Movie details")
                     this.platform.log.debug(rawData);
                     //////////////////////Media Name///////////////////////////////
                     if (rawData.video.title === 'AVCHD') {
@@ -1862,7 +1921,12 @@ class zidooAccessory {
                     this.newInputDuration(runtimeNumber);
                     //////////////////Media Current position
                     this.newMovieTime(parseInt(rawData.video.currentPosition));
+                    ///////////////Audio format
+                    this.platform.log.debug(rawData.audio.information);
+                    this.newAudioStatus(rawData.audio.information);
+
                     ////////////////////Media elapsed time////////////////////////////
+                    /*
                     let elapsedRuntimeNumber = this.secondsToTime(parseInt(rawData.video.currentPosition) / 1000);
                     if (elapsedRuntimeNumber.startsWith('0')) {
                         elapsedRuntimeNumber = elapsedRuntimeNumber.substring(1);
@@ -1871,20 +1935,26 @@ class zidooAccessory {
                     else {
                         this.newElapsedTime(elapsedRuntimeNumber);
                     }
-                    //////////////Video format////////////////////////
-                    let videoOutput = rawData.video.output.split(' ');
-                    this.platform.log.debug(videoOutput);
-                    this.platform.log.debug(Object.values(videoOutput)[Object.keys(videoOutput).length - 1]);
+                    */
+                    if (typeof rawData.video.output !== 'undefined') {
+                        //////////////Video format////////////////////////
+                        let videoOutput = rawData.video.output.split(' ');
+                        this.platform.log.debug(videoOutput);
+                        this.platform.log.debug(Object.values(videoOutput)[Object.keys(videoOutput).length - 1]);
 
-                    this.rightVideoFormat(Object.values(videoOutput)[Object.keys(videoOutput).length - 1], Math.round(rawData.video.fps * 1000) / 1000);
+                        this.rightVideoFormat(Object.values(videoOutput)[Object.keys(videoOutput).length - 1], Math.round(rawData.video.fps * 1000) / 1000);
 
-                    ///////////////Audio format
-                    this.platform.log.debug(rawData.audio.information);
-                    this.newAudioStatus(rawData.audio.information);
-                    //////////Audio Lnaguage
-                    let languageOutput = rawData.audio.information.split(' ');
-                    this.platform.log.debug(Object.values(languageOutput)[0]);
-                    this.newLanguage(Object.values(languageOutput)[0]);
+                        //////////Audio Lnaguage
+                        let languageOutput = rawData.audio.information.split(' ');
+                        this.platform.log.debug(Object.values(languageOutput)[0]);
+                        this.newLanguage(Object.values(languageOutput)[0]);
+                    }
+                    else {
+                        this.newVideoFormat(rawData.video.formt + " " + Math.round(rawData.video.fps * 1000) / 1000 + "fps");
+                        let languageOutput = rawData.audio.information.split(' ');
+                        this.platform.log.debug(Object.values(languageOutput)[1]);
+                        this.newLanguage(Object.values(languageOutput)[1]);
+                    }
                 }
             }
         }
@@ -1900,16 +1970,17 @@ class zidooAccessory {
                 this.showState = true;
                 this.musicPlaying = true;
             }
-            if (rawData.state === 4) {
+            else if (rawData.state === 4) {
                 this.newPlayBackState([false, true, false]);
                 this.showState = true;
                 this.musicPlaying = true;
             }
-            if (rawData.state === 0 && this.moviePlaying === false) {
+            else if (rawData.state === 0 && this.moviePlaying === false) {
+                this.musicPlaying = false;
                 this.newPlayBackState([false, false, false]);
                 this.mediaDetailsReset();
             }
-            if (rawData.state === 0) {
+            else if (rawData.state === 0) {
                 this.musicPlaying = false;
             }
             if (rawData.state !== 0) {
@@ -1919,27 +1990,10 @@ class zidooAccessory {
                 this.platform.log.debug("Music details")
                 this.platform.log.debug(rawData);
                 ////////Playback Status
-                //////////////////////Media Name///////////////////////////////
-                let songTitle = rawData.playingMusic.artist + " - " + rawData.playingMusic.title
-                /// this.platform.log(songTitle.length)
-                if (songTitle.length >= 64) {
-                    this.newInputName(songTitle.slice(0, 61) + "...")
-                }
-                else {
-                    this.newInputName(rawData.playingMusic.artist + " - " + rawData.playingMusic.title);
-                }
-
-                //////////Media runtime////////////////////
-                this.movieRemaining = parseInt(rawData.duration);
-                let runtimeNumber = this.secondsToTime(parseInt(rawData.duration) / 1000);
-                if (runtimeNumber.startsWith('0')) {
-                    runtimeNumber = runtimeNumber.substring(1);
-                }
-
-                this.newInputDuration(runtimeNumber);
                 //////////////////Media Current position
                 this.newMovieTime(parseInt(rawData.position));
                 ////////////////////Media elapsed time////////////////////////////
+                /*
                 let elapsedRuntimeNumber = this.secondsToTime(parseInt(rawData.position) / 1000);
                 if (elapsedRuntimeNumber.startsWith('0')) {
                     elapsedRuntimeNumber = elapsedRuntimeNumber.substring(1);
@@ -1948,16 +2002,29 @@ class zidooAccessory {
                 else {
                     this.newElapsedTime(elapsedRuntimeNumber);
                 }
+                */
                 //////////////Audio format////////////////////////
-
                 this.newVideoFormat(rawData.playingMusic.extension);
-
                 ///////////////Audio Bitrate
                 this.newAudioFormat(rawData.playingMusic.bitrate);
-
                 //////////Audio file size
                 this.newLanguage(rawData.playingMusic.fileSize);
-
+                //////////////////////Media Name///////////////////////////////
+                let songTitle = rawData.playingMusic.artist + " - " + rawData.playingMusic.title
+                /// this.platform.log(songTitle.length)
+                if (songTitle.length >= 64) {
+                    this.newInputName(songTitle.slice(0, 60) + "...")
+                }
+                else {
+                    this.newInputName(rawData.playingMusic.artist + " - " + rawData.playingMusic.title);
+                }
+                //////////Media runtime////////////////////
+                this.movieRemaining = parseInt(rawData.duration);
+                let runtimeNumber = this.secondsToTime(parseInt(rawData.duration) / 1000);
+                if (runtimeNumber.startsWith('0')) {
+                    runtimeNumber = runtimeNumber.substring(1);
+                }
+                this.newInputDuration(runtimeNumber);
             }
             else {
 
@@ -2099,9 +2166,6 @@ class zidooAccessory {
         }
         else if (keyS.includes('VolumeDown')) {
             keySent = 'Volume Down';
-        }
-        else if (keyS.includes('Mute')) {
-            keySent = 'Mute';
         }
         else if (keyS.includes('Mute')) {
             keySent = 'Mute';
