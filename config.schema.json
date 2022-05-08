@@ -2,7 +2,7 @@
   "pluginAlias": "zidooPlugin",
   "pluginType": "platform",
   "singular": true,
-  "headerDisplay": "This plugin is provided by [carlosgamezvillegas](https://github.com/carlosgamezvillegas/)",
+  "headerDisplay": "This plugin is provided by [carlosgamezvillegas](https://github.com/carlosgamezvillegas/). The device must be [added manually](https://github.com/carlosgamezvillegas/homebridge-zidoo-androidtv#adding-the-zidoo-to-the-home-app) in the Home app.",
   "schema": {
     "type": "object",
     "properties": {
@@ -13,33 +13,37 @@
         "default": "Zidoo Z9X"
       },
       "ip": {
-        "title": "IP Address",
+        "title": "IP Address (must be fixed)",
         "type": "string",
         "placeholders": "192.168.1.1",
+        "format": "ipv4",
         "required": true
       },
       "mac": {
-        "title": "LAN MAC Address (WOL)",
+        "title": "LAN MAC Address (for WOL)",
         "type": "string",
         "placeholders": "NI:CO:CA:TA:GA:TA",
         "required": true
       },
       "pollingInterval": {
         "title": "Polling Interval (milliseconds)",
-        "type": "number",
+        "type": "integer",
         "placeholders": "1000",
+        "default": 1000,
+        "minimum": 1000,
+        "maximum": 60000,
         "required": false
       },
       "modelName": {
         "title": "Model",
         "type": "string",
-        "placeholders": "UDP-203",
+        "placeholders": "Z9X",
         "required": false
       },
       "manufacturer": {
         "title": "Manufacturer",
         "type": "string",
-        "placeholders": "Oppo",
+        "placeholders": "Zidoo",
         "required": false
       },
       "serialN": {
@@ -222,6 +226,17 @@
         "title": "Add the App Switch button",
         "type": "boolean",
         "required": false
+      },
+      "rebootB": {
+        "title": "Add the Reboot button",
+        "type": "boolean",
+        "required": false
+      },
+      "autoIPMac": {
+        "title": "Set the IP and MAC addresses manually. Use this option if the device cannot be found automatically",
+        "type": "boolean",
+        "required": false,
+        "default": false
       }
     }
   },
@@ -235,27 +250,6 @@
           "flex-flow": "column",
           "items": [
             "name"
-          ]
-        },
-        {
-          "type": "flex",
-          "flex-flow": "column",
-          "items": [
-            "ip"
-          ]
-        },
-        {
-          "type": "flex",
-          "flex-flow": "column",
-          "items": [
-            "mac"
-          ]
-        },
-        {
-          "type": "flex",
-          "flex-flow": "column",
-          "items": [
-            "pollingInterval"
           ]
         },
         {
@@ -277,6 +271,32 @@
           "flex-flow": "column",
           "items": [
             "serialN"
+          ]
+        },
+        {
+          "type": "flex",
+          "flex-flow": "column",
+          "items": [
+            "pollingInterval"
+          ]
+        },
+        {
+          "key": "autoIPMac"
+        },
+        {
+          "type": "flex",
+          "flex-flow": "column",
+          "condition": "model.autoIPMac",
+          "items": [
+            "ip"
+          ]
+        },
+        {
+          "type": "flex",
+          "flex-flow": "column",
+          "condition": "model.autoIPMac",
+          "items": [
+            "mac"
           ]
         }
       ]
@@ -350,6 +370,9 @@
       "items": [
         {
           "key": "powerB"
+        },
+        {
+          "key": "rebootB"
         },
         {
           "key": "redB"
