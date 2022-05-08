@@ -67,6 +67,7 @@ class zidooAccessory {
         this.config = platform.config;
         this.ZIDOO_IP = this.config.ip;
         this.ZIDOO_PORT = 9529;
+        this.ZIDOO_UDP_PORT = 18239;
         this.statelessTimeOut = 1000;
         this.turnOffCommand = false;
         this.moviePlaying = false;
@@ -88,6 +89,8 @@ class zidooAccessory {
         this.mediaVideoFormat = 'Video Format';
         this.mediaAudioFormat = 'Audio Format';
         this.language = 'Audio Language';
+        this.IPReceived = false;
+        this.macReceived = false;
         this.showState = false;
         this.httpNotResponding = 0;
         /////MovieConstants
@@ -99,12 +102,12 @@ class zidooAccessory {
         this.reconnectionTry = 15;
         //Device Information//////////////////////////////////////////////////////////////////////////////////////
         this.config.name = platform.config.name || 'Zidoo Z9X';
-        this.config.ip = platform.config.ip;
         this.config.manufacturer = platform.config.manufacturer || 'Zidoo';
         this.config.pollingInterval = platform.config.pollingInterval || 1000;
         this.config.modelName = platform.config.modelName || 'Z9X';
         this.config.serialN = platform.config.serialN || 'B210U71647033894';
         this.config.mac = platform.config.mac || 'CA:TA:NI:CO:GA:TA';
+        this.config.autoIPMac = platform.config.autoIPMac || false;
         this.config.standby = platform.config.standby || true;
         this.config.mediaButtons = platform.config.mediaButtons || false;
         this.config.cursorUpB = platform.config.cursorUpB || false;
@@ -140,10 +143,17 @@ class zidooAccessory {
         this.config.screenshotB = platform.config.screenshotB || false;
         this.config.appSwitchB = platform.config.appSwitchB || false;
         this.config.rebootB = platform.config.rebootB || false;
-
+        if (this.config.autoIPMac === true) {
+            //this.platform.log('set to false');
+            this.config.autoIPMac = false;
+        }
+        else {
+            // this.platform.log('set to true');
+            this.config.autoIPMac = true;
+        }
         ////Checking if the necessary information was given by the user////////////////////////////////////////////////////
         try {
-            if (!this.config.ip) {
+            if (!this.config.ip && this.config.autoIPMac === false) {
                 throw new Error(`Zidoo IP address is required for ${this.config.name}`);
             }
         } catch (error) {
@@ -180,13 +190,23 @@ class zidooAccessory {
                     // this.sending([this.pressedButton('POWER ON')]);
                 }
                 else {
-                    this.sending([this.pressedButton('STOP')]);
-                    this.newPowerState(false);
-                    this.turnOffCommand = true;
-                    this.turnOnCommand = false;
-                    this.turnOffAll();
-                    this.sending([this.pressedButton('POWER OFF')]);
-
+                    if (this.playBackState[0] === true || this.playBackState[1] === true) {
+                        this.sending([this.pressedButton('STOP')]);
+                        this.newPowerState(false);
+                        this.turnOffCommand = true;
+                        this.turnOnCommand = false;
+                        this.turnOffAll();
+                        setTimeout(() => {
+                            this.sending([this.pressedButton('POWER OFF')]);
+                        }, 100);
+                    }
+                    else {
+                        this.newPowerState(false);
+                        this.turnOffCommand = true;
+                        this.turnOnCommand = false;
+                        this.turnOffAll();
+                        this.sending([this.pressedButton('POWER OFF')]);
+                    }
                 }
                 callback(null);
             });
@@ -1370,8 +1390,11 @@ class zidooAccessory {
         if (this.config.rebootB === false) {
             this.accessory.removeService(this.rebootB);
         }
+
         //////////////////Connecting to Zidoo
-        // this.udpServer();
+        if (this.config.autoIPMac === true) {
+            this.discoveryUPD();
+        }
         //syncing////////////////////////////////////////////////////////////////////////////////////////
         setInterval(() => {
             if (this.turnOffCommand === false && this.turnOnCommand === false) {
@@ -1387,6 +1410,9 @@ class zidooAccessory {
                 }, 500);
                 if (this.httpNotResponding >= this.reconnectionTry) {
                     this.turnOffAll();
+                    if (this.config.autoIPMac === true) {
+                        this.helloMessage();
+                    }
                 }
 
                 /*
@@ -1456,24 +1482,82 @@ class zidooAccessory {
         }, this.config.pollingInterval);
     }
 
+    ////////////////Zidoo discovery
+    discoveryUPD() {
+        this.discovery = udp.createSocket({ type: 'udp4', reuseAddr: true });
+        this.discovery.on('error', (error) => {
+            this.platform.log.debug(error);
+            this.discovery.close();
+        });
+        this.discovery.on('listening', () => {
+            var address = this.discovery.address();
+            this.platform.log.debug('UDP Client listening on ' + address.address + ":" + address.port);
+            this.discovery.setBroadcast(true)
+            this.discovery.setMulticastTTL(128);
+            this.discovery.addMembership('239.39.3.9');
+            this.helloMessage();
+        });
+
+        this.discovery.on('message', (message, remote) => {
+            this.platform.log.debug('Message received From: ' + remote.address + ':' + remote.port);
+            let newMessage = String.fromCharCode(...message);
+            newMessage = newMessage.substring(newMessage.indexOf("\n") + 1)
+            var properties = newMessage.split('\r\n');
+            var zidooInfo = {};
+            properties.forEach((property) => {
+                var tup = property.split(':');
+                zidooInfo[tup[0]] = tup[1];
+            });
+            if (typeof zidooInfo !== 'undefined' && !zidooInfo.host.includes('239.39.3.9')) {
+                this.platform.log.debug(zidooInfo);
+                this.ZIDOO_IP = zidooInfo.host.replace(/\s+/g, '');
+                this.IPReceived = true;
+            }
+        });
+        this.discovery.bind(this.ZIDOO_UDP_PORT);
+
+    }
+    //////Zidoo Hello message
+    helloMessage() {
+        this.hello = udp.createSocket({ type: 'udp4', reuseAddr: true });
+        let message = new Buffer.from('JOIN\r\nuuid: CataNico\r\ntype: 2\r\nhost: 239.39.3.9\r\nport: 18239\r\n\r\n');
+        this.hello.send(message, 18239, '239.39.3.9', (err) => {
+            if (err !== null) {
+                this.platform.log.debug('Error sending UDP message: ' + err);
+                setTimeout(() => {
+                    this.helloMessage();
+                }, 2000);
+            }
+            // this.platform.log('UDP message sent to ' + HOST + ':' + PORT);
+            this.hello.close();
+        });
+    }
+
+
     ///////////////Wake up/////
     WakeupOnLAN() {
-
-        WOL.wake(this.config.mac, (err) => {
-            if (err) {
-                this.platform.log(`Could not wake up ${this.config.name}: ${err}`);
-                this.newPowerState(false);
-                return;
-            }
-            this.platform.log(`${this.config.name} woke up!`);
-            this.newPowerState(true);
-            this.turnOffCommand = true;
-            setTimeout(() => {
-                if (this.powerState === false) {
-                    this.platform.log(`Startup time of 60 expired, reverting state to offline`);
+        if (this.config.mac !== 'CA:TA:NI:CO:GA:TA') {
+            this.macReceived === true;
+        }
+        if (this.config.autoIPMac === false || this.macReceived === true) {
+            WOL.wake(this.config.mac, (err) => {
+                if (err) {
+                    this.platform.log(`Could not wake up ${this.config.name}: ${err}`);
+                    this.newPowerState(false);
                 }
-            }, 60000);
-        });
+                this.platform.log(`${this.config.name} woke up!`);
+                this.newPowerState(true);
+                this.turnOffCommand = true;
+                setTimeout(() => {
+                    if (this.powerState === false) {
+                        this.platform.log(`Startup time of 60 secods expired, reverting state to offline`);
+                    }
+                }, 60000);
+            });
+        }
+        else {
+            this.platform.log('IP and MAC addresses are not set yet, turn on the device')
+        }
     }
     /////
 
@@ -1493,12 +1577,23 @@ class zidooAccessory {
                 */
         }
         else {
-            this.sending([this.pressedButton('STOP')]);
-            this.newPowerState(false);
-            this.turnOffCommand = true;
-            this.turnOnCommand = false;
-            this.turnOffAll();
-            this.sending([this.pressedButton('POWER OFF')]);
+            if (this.playBackState[0] === true || this.playBackState[1] === true) {
+                this.sending([this.pressedButton('STOP')]);
+                this.newPowerState(false);
+                this.turnOffCommand = true;
+                this.turnOnCommand = false;
+                this.turnOffAll();
+                setTimeout(() => {
+                    this.sending([this.pressedButton('POWER OFF')]);
+                }, 100);
+            }
+            else {
+                this.newPowerState(false);
+                this.turnOffCommand = true;
+                this.turnOnCommand = false;
+                this.turnOffAll();
+                this.sending([this.pressedButton('POWER OFF')]);
+            }
         }
         this.platform.log.debug('Set Power to ->', value);
         callback(null);
@@ -1558,46 +1653,58 @@ class zidooAccessory {
     }
 
     ///////Send HTTP command///////////////////////////
+
     sending(url) {
-        this.platform.log.debug(url);
-        url = url[0];
-        let key;
-        if (url.includes('getState')) {
-            key = 'getState';
-        }
-        else if (url.includes('getPlayStatus')) {
-            key = 'getPlayStatus';
-        }
-        else if (url.includes('getModel')) {
-            key = 'getModel';
-        }
-        else if (url.includes('seek')) {
-            key = 'seek'
+        this.httpNotResponding += 1;
+        if (this.config.autoIPMac === false || this.IPReceived === true) {
+            let regexExp = /^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$/gi;
+            if (regexExp.test(this.ZIDOO_IP)) {
+                this.platform.log.debug(url);
+                url = url[0];
+                let key;
+                if (url.includes('getState')) {
+                    key = 'getState';
+                }
+                else if (url.includes('getPlayStatus')) {
+                    key = 'getPlayStatus';
+                }
+                else if (url.includes('getModel')) {
+                    key = 'getModel';
+                }
+                else if (url.includes('seek')) {
+                    key = 'seek'
+                }
+                else {
+                    let key1 = url.split('=');
+                    key = key1[1];
+                }
+                this.platform.log.debug(url);
+                this.platform.log.debug(key);
+                this.commandLog(key);
+                request.get(url, (res) => {
+                    res.setEncoding('utf8');
+                    let rawData = '';
+                    res.on('data', (chunk) => { rawData += chunk; });
+                    res.on('end', () => {
+                        try {
+                            let parsedData = JSON.parse(rawData);
+                            this.httpNotResponding = 0;
+                            this.httpEventDecoder(parsedData, key);
+                        } catch (e) {
+                            //console.log('Catch error: ' + e.message);
+                        }
+                    });
+                }).on('error', (e) => {
+                    //console.log(`Got error: ${e.message}`);
+                });
+            }
+            else {
+                this.platform.log.debug('IP address is not valid');
+            }
         }
         else {
-            let key1 = url.split('=');
-            key = key1[1];
+            this.platform.log.debug('IP address is not set yet, turn on the device');
         }
-        this.commandLog(key);
-        this.platform.log.debug(url);
-        this.platform.log.debug(key);
-        this.httpNotResponding += 1;
-        request.get(url, (res) => {
-            res.setEncoding('utf8');
-            let rawData = '';
-            res.on('data', (chunk) => { rawData += chunk; });
-            res.on('end', () => {
-                try {
-                    let parsedData = JSON.parse(rawData);
-                    this.httpNotResponding = 0;
-                    this.httpEventDecoder(parsedData, key);
-                } catch (e) {
-                    //console.error(e.message);
-                }
-            });
-        }).on('error', (e) => {
-            // console.error(`Got error: ${e.message}`);
-        });
     }
 
     //////////Current Status//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1762,7 +1869,7 @@ class zidooAccessory {
         else {
             this.powerStateTV = 0;
         }
-        if (this.powerSate !== newValue) {
+        if (this.powerState !== newValue) {
             this.powerState = newValue;
             this.tvService.updateCharacteristic(this.platform.Characteristic.Active, this.powerStateTV);
             this.tvService.getCharacteristic(this.platform.Characteristic.Active).updateValue(this.powerStateTV);
@@ -1848,6 +1955,13 @@ class zidooAccessory {
             this.moviePlaying = false;
         }
         else if (rawData.status === 200) {
+            if (this.config.mac !== rawData.net_mac && typeof rawData.net_mac !== 'undefined') {
+                this.config.mac = rawData.net_mac
+                this.macReceived = true;
+            }
+            else {
+                this.macReceived = true;
+            }
             if (key.includes('getModel') || key.includes('getState') || key.includes('getPlayStatus')) {
                 this.platform.log.debug(`Response: ${this.commandName(key)} Command Executed`);
             }
@@ -2401,39 +2515,5 @@ class zidooAccessory {
         this.newLanguage('Audio Language');
 
     }
-    udpServer() {
 
-        this.server = udp.createSocket('udp4');
-        this.server.on('error', (error) => {
-            this.platform.log(error);
-            this.server.close();
-        });
-        // emits on new datagram msg
-        this.server.on('message', (msg, info) => {
-            this.platform.log('Data received from client : ' + msg.toString());
-            this.platform.log('Received %d bytes from %s:%d', msg.length, info.address, info.port);
-
-        });
-        //emits when socket is ready and listening for datagram msgs
-        this.server.on('listening', () => {
-            let address = this.server.address();
-            let port = address.port;
-            let family = address.family;
-            let ipaddr = address.address;
-            this.server.setBroadcast(true);
-            this.server.setMulticastTTL(128);
-            this.server.addMembership('239.39.3.9');
-            this.platform.log('Server is listening at port ' + port);
-            this.platform.log('Server ip ' + ipaddr);
-            this.platform.log('Server is IP4/IP6 : ' + family);
-        });
-        this.server.bind(18239, '192.168.86.25')
-        //emits after the socket is closed using socket.close();
-        this.server.on('close', () => {
-            this.platform.log('Socket is closed !');
-        });
-
-        //this.server.bind(1900, '239.255.255.250');
-
-    }
 }
