@@ -2,6 +2,11 @@
 
 # homebridge-zidoo-androidtv
 ## HomeKit integration for Zidoo
+  
+[![verified-by-homebridge](https://badgen.net/badge/homebridge/verified/purple)](https://github.com/homebridge/homebridge/wiki/Verified-Plugins)
+[![homebridge-zidoo-androidtv](https://badgen.net/npm/v/homebridge-zidoo-androidtv?icon=npm)](https://www.npmjs.com/package/homebridge-zidoo-androidtv)
+[![mit-license](https://badgen.net/npm/license/lodash)](https://github.com/merdok/homebridge-zidoo-androidtv/blob/master/LICENSE)
+  
 </span>
 
 # What is this?
