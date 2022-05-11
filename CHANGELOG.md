@@ -1,4 +1,6 @@
 # Changelog
+## [2.0.1] - 2022-05-10
+- Homebridge Verified Badge added
 ## [2.0.0] - 2022-05-07
 - The IP and MAC address can be found automatically now using the UDP broadcast of the device
 ## [1.0.0] - 2022-04-09
