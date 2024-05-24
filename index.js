@@ -5,7 +5,6 @@ const WOL = require('wol');
 const request = require('http');
 const udp = require('dgram');
 
-
 module.exports = (api) => {
     api.registerPlatform(PLATFORM_NAME, zidooPlatform);
 };
@@ -53,7 +52,7 @@ class zidooPlatform {
         const uuid = this.api.hap.uuid.generate(this.zidooDevice.zidooUniqueId);
         this.log.debug('Adding new accessory:', this.zidooDevice.zidooDisplayName);
         const accessory = new this.api.platformAccessory(this.zidooDevice.zidooDisplayName, uuid);
-        accessory.category = this.api.hap.Accessory.Categories.TELEVISION;
+        accessory.category = this.api.hap.Accessory.Categories.TV_SET_TOP_BOX;
         accessory.context.device = this.zidooDevice;
         new zidooAccessory(this, accessory);
         this.api.publishExternalAccessories(PLUGIN_NAME, [accessory]);
@@ -77,17 +76,19 @@ class zidooAccessory {
         this.playBackState = [false, false, false];
         this.inputState = [false, false, false, false, false, false];
         this.powerStateTV = 0;
-        this.currentVolume = 100;
+        this.currentVolume = 0;
         this.currentMuteState = false;
+        this.currentVolumeSwitch = false;
+        this.maxVolume = 15;
         this.inputID = 1;
         this.mediaState = 4;
         this.videoState = false;
         this.audioState = false;
-        this.inputName = 'Media Name';
+        this.inputName = 'Media Title';
         this.mediaDuration = 'Runtime';
-        this.mediaElapse = 'Elapsed Time';
-        this.mediaVideoFormat = 'Video Format';
-        this.mediaAudioFormat = 'Audio Format';
+        this.subtitleInfo = 'Additional Information';
+        this.mediaVideoFormat = 'Video Information';
+        this.mediaAudioFormat = 'Audio Information';
         this.language = 'Audio Language';
         this.IPReceived = false;
         this.macReceived = false;
@@ -143,6 +144,11 @@ class zidooAccessory {
         this.config.screenshotB = platform.config.screenshotB || false;
         this.config.appSwitchB = platform.config.appSwitchB || false;
         this.config.rebootB = platform.config.rebootB || false;
+        this.config.changeDimmersToFan = platform.config.changeDimmersToFan || false;
+        this.config.remainMovieTimer = platform.config.remainMovieTimer || false;
+        this.config.volume = platform.config.volume || false;
+        this.config.infoToMenu = platform.config.infoToMenu || false;
+        this.config.removePlayback = platform.config.removePlayback || false;
         if (this.config.autoIPMac === true) {
             //this.platform.log('set to false');
             this.config.autoIPMac = false;
@@ -170,8 +176,6 @@ class zidooAccessory {
             .setCharacteristic(this.platform.Characteristic.Model, this.config.modelName)
             .setCharacteristic(this.platform.Characteristic.SerialNumber, this.config.serialN);
         // set accessory information//////////////////////////////////////////////////////////////////////////////////////////
-
-
         /////////Television Controls///////////////////////////////////////////////////////////////////////////////////////////
         // add the tv service
         this.tvService = this.accessory.getService(this.config.name) ||
@@ -180,6 +184,9 @@ class zidooAccessory {
         this.tvService.setCharacteristic(this.platform
             .Characteristic.SleepDiscoveryMode, this.platform.Characteristic.SleepDiscoveryMode.ALWAYS_DISCOVERABLE);
         this.tvService.getCharacteristic(this.platform.Characteristic.Active)
+            .on('get', (callback) => {
+                callback(null, this.powerStateTV);
+            })
             .on('set', (newValue, callback) => {
                 this.platform.log.debug('Set Zidoo Active to: ' + newValue);
                 if (newValue === 1) {
@@ -224,6 +231,29 @@ class zidooAccessory {
                 this.tvService.updateCharacteristic(this.platform.Characteristic.ClosedCaptions, 0);
                 callback(null);
             });
+        ///Things to remove
+        this.tvService.getCharacteristic(this.platform.Characteristic.Brightness)
+            .on('get', (callback) => {
+                let currentValue = this.currentVolume;
+                callback(null, currentValue);
+            })
+            .on('set', (newValue, callback) => {
+                this.sending([this.volumeChange(newValue)]);
+                this.platform.log.debug('Volume Value set to: ' + newValue);
+                callback(null);
+            });
+        this.tvService.getCharacteristic(this.platform.Characteristic.PictureMode)
+            .on('set', (newValue, callback) => {
+                if (newValue === 1) {
+                    this.sending([this.pressedButton('VOLUME DOWN')]);
+                }
+                if (newValue === 0) {
+                    this.sending([this.pressedButton('VOLUME UP')]);
+                }
+                this.platform.log('Volume Value moved by: ' + newValue);
+                callback(null);
+            });
+        /////
         this.tvService.getCharacteristic(this.platform.Characteristic.RemoteKey)
             .on('set', (newValue, callback) => {
                 switch (newValue) {
@@ -296,8 +326,14 @@ class zidooAccessory {
                         break;
                     }
                     case this.platform.Characteristic.RemoteKey.INFORMATION: {
-                        this.platform.log.debug('set Remote Key Pressed: INFORMATION');
-                        this.sending([this.pressedButton('INFO')]);
+                        if (this.config.infoToMenu) {
+                            this.platform.log.debug('set Remote Key Pressed: MENU');
+                            this.sending([this.pressedButton('MENU')]);
+                        }
+                        else {
+                            this.platform.log.debug('set Remote Key Pressed: INFORMATION');
+                            this.sending([this.pressedButton('INFO')]);
+                        }
                         break;
                     }
                 }
@@ -310,33 +346,7 @@ class zidooAccessory {
             .getCharacteristic(this.platform.Characteristic.ActiveIdentifier)
             .on('set', (inputIdentifier, callback) => {
                 this.platform.log.debug('Active Identifier set to:', inputIdentifier);
-                if (inputIdentifier === 999999) {
-                    this.newInputState([false, false, false, false, false, false]);
-                }
-                if (inputIdentifier === 0) {
-                    this.newInputState([false, false, false, false, false, false]);
-                }
-                else if (inputIdentifier === 1) {
-                    this.inputID = 1;
-                }
-                else if (inputIdentifier === 2) {
-                    this.inputID = 2;
-                }
-                else if (inputIdentifier === 3) {
-                    this.inputID = 3;
-                }
-                else if (inputIdentifier === 4) {
-                    this.inputID = 4;
-                }
-                else if (inputIdentifier === 5) {
-                    this.inputID = 5;
-                }
-                else if (inputIdentifier === 6) {
-                    this.inputID = 6;
-                }
-                else {
-                    //
-                }
+                this.inputID = inputIdentifier;
                 callback();
             })
             .on('get', (callback) => {
@@ -349,10 +359,10 @@ class zidooAccessory {
             .on('set', (newValue, callback) => {
                 this.platform.log.debug('Requested Zidoo Settings ' + newValue);
                 if (this.playBackState[0] === false && this.playBackState[1] === false && this.playBackState[2] === false) {
-                    this.sending([this.pressedButton('POP-UP MENU')]);
+                    this.sending([this.pressedButton('MENU')]);
                 }
                 else {
-                    this.sending([this.pressedButton('POP-UP MENU')]);
+                    this.sending([this.pressedButton('MENU')]);
                 }
                 callback();
             });
@@ -386,23 +396,23 @@ class zidooAccessory {
             });
         this.tvService.addLinkedService(this.runtime);
         this.videoAudioElapseTime = this.accessory.getService('Elapsed Time') ||
-            this.accessory.addService(this.platform.Service.InputSource, 'Elapsed Time', 'CataNicoGaTa-1005')
-                .setCharacteristic(this.platform.Characteristic.Identifier, 3)
-                .setCharacteristic(this.platform.Characteristic.ConfiguredName, this.mediaElapse)
+            this.accessory.addService(this.platform.Service.InputSource, 'Additional Information', 'CataNicoGaTa-1005')
+                .setCharacteristic(this.platform.Characteristic.Identifier, 6)
+                .setCharacteristic(this.platform.Characteristic.ConfiguredName, this.subtitleInfo)
                 .setCharacteristic(this.platform.Characteristic.IsConfigured, this.platform.Characteristic.IsConfigured.CONFIGURED)
                 .setCharacteristic(this.platform.Characteristic.InputSourceType, this.platform.Characteristic.InputSourceType.HDMI)
                 .setCharacteristic(this.platform.Characteristic.TargetVisibilityState, false ? this.platform.Characteristic.TargetVisibilityState.SHOWN : this.platform.Characteristic.TargetVisibilityState.HIDDEN)
                 .setCharacteristic(this.platform.Characteristic.CurrentVisibilityState, false ? this.platform.Characteristic.CurrentVisibilityState.SHOWN : this.platform.Characteristic.CurrentVisibilityState.HIDDEN);
         this.videoAudioElapseTime.getCharacteristic(this.platform.Characteristic.ConfiguredName)
             .on('get', (callback) => {
-                let currentValue = this.mediaElapse;
+                let currentValue = this.subtitleInfo;
                 this.platform.log.debug('Getting' + currentValue);
                 callback(null, currentValue);
             });
         this.tvService.addLinkedService(this.videoAudioElapseTime);
         this.videoFormat = this.accessory.getService('Video Format') ||
-            this.accessory.addService(this.platform.Service.InputSource, 'Video Format', 'CataNicoGaTa-4005')
-                .setCharacteristic(this.platform.Characteristic.Identifier, 4)
+            this.accessory.addService(this.platform.Service.InputSource, 'Video Information', 'CataNicoGaTa-4005')
+                .setCharacteristic(this.platform.Characteristic.Identifier, 3)
                 .setCharacteristic(this.platform.Characteristic.ConfiguredName, this.mediaVideoFormat)
                 .setCharacteristic(this.platform.Characteristic.IsConfigured, this.platform.Characteristic.IsConfigured.CONFIGURED)
                 .setCharacteristic(this.platform.Characteristic.InputSourceType, this.platform.Characteristic.InputSourceType.HDMI)
@@ -416,8 +426,8 @@ class zidooAccessory {
             });
         this.tvService.addLinkedService(this.videoFormat);
         this.audioFormat = this.accessory.getService('Audio Format') ||
-            this.accessory.addService(this.platform.Service.InputSource, 'Audio Format', 'CataNicoGaTa-4006')
-                .setCharacteristic(this.platform.Characteristic.Identifier, 5)
+            this.accessory.addService(this.platform.Service.InputSource, 'Audio Information', 'CataNicoGaTa-4006')
+                .setCharacteristic(this.platform.Characteristic.Identifier, 4)
                 .setCharacteristic(this.platform.Characteristic.ConfiguredName, this.mediaAudioFormat)
                 .setCharacteristic(this.platform.Characteristic.IsConfigured, this.platform.Characteristic.IsConfigured.CONFIGURED)
                 .setCharacteristic(this.platform.Characteristic.InputSourceType, this.platform.Characteristic.InputSourceType.HDMI)
@@ -432,7 +442,7 @@ class zidooAccessory {
         this.tvService.addLinkedService(this.audioFormat);
         this.audioLanguage = this.accessory.getService('Audio Language') ||
             this.accessory.addService(this.platform.Service.InputSource, 'Audio Language', 'CataNicoGaTa-4007')
-                .setCharacteristic(this.platform.Characteristic.Identifier, 6)
+                .setCharacteristic(this.platform.Characteristic.Identifier, 5)
                 .setCharacteristic(this.platform.Characteristic.ConfiguredName, this.language)
                 .setCharacteristic(this.platform.Characteristic.IsConfigured, this.platform.Characteristic.IsConfigured.CONFIGURED)
                 .setCharacteristic(this.platform.Characteristic.InputSourceType, this.platform.Characteristic.InputSourceType.HDMI)
@@ -497,8 +507,8 @@ class zidooAccessory {
                 callback(null, currentValue);
             })
             .on('set', (newValue, callback) => {
-                this.sending([this.pressedButton('MUTE')]);
                 this.platform.log.debug('Volume Value set to: Mute/Unmute');
+                this.sending([this.pressedButton('MUTE')]);
                 if (this.currentMuteState === false) {
                     this.currentMuteState = true
                 }
@@ -513,75 +523,217 @@ class zidooAccessory {
                 callback(null, currentValue);
             })
             .on('set', (newValue, callback) => {
-                //this.sending([this.volumeChange(newValue)]);
-                //this.platform.log.debug('Volume Value set to: ' + newValue);
+                this.sending([this.volumeChange(newValue)]);
+                this.platform.log.debug('Volume Value set to: ' + newValue);
                 callback(null);
             });
         this.tvService.addLinkedService(this.speakerService);
-        /////Video/Movie Controls/////////////////////////////////////////////////////////////////////
+        /////Volume and Video/Movie Controls/////////////////////////////////////////////////////////////////////
+
+        if (this.config.volume === true) {
+            if (this.config.changeDimmersToFan === false) {
+                this.volumeDimmer = this.accessory.getService('Zidoo Volume') ||
+                    this.accessory.addService(this.platform.Service.Lightbulb, 'Zidoo Volume', 'CataNicoGaT-98Z');
+                this.volumeDimmer.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+                this.volumeDimmer.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Zidoo Volume');
+                this.volumeDimmer.getCharacteristic(this.platform.Characteristic.On)
+                    .on('get', (callback) => {
+                        let currentValue = this.currentVolumeSwitch;
+                        callback(null, currentValue);
+                    })
+                    .on('set', (newValue, callback) => {
+                        this.platform.log.debug('Volume Value set to: Mute/Unmute');
+                        if (newValue == false) {
+                            if (this.currentVolume != 0) {
+                                this.sending(["http://" + this.ZIDOO_IP + ":" + this.ZIDOO_PORT + "/ZidooControlCenter/RemoteControl/changeVolume?type=2&value=" + '0']);
+                            }
+                        }
+                        else {
+                            if (this.currentVolume == 0) {
+                                this.sending(["http://" + this.ZIDOO_IP + ":" + this.ZIDOO_PORT + "/ZidooControlCenter/RemoteControl/changeVolume?type=2&value=" + this.maxVolume]);
+                            }
+                            else {
+                                this.sending(["http://" + this.ZIDOO_IP + ":" + this.ZIDOO_PORT + "/ZidooControlCenter/RemoteControl/changeVolume?type=2&value=" + this.currentVolume]);
+                            }
+                        }
+                        callback(null);
+                    });
+
+                this.volumeDimmer.addCharacteristic(new this.platform.Characteristic.Brightness())
+                    .on('get', (callback) => {
+                        let currentValue = this.currentVolume;
+                        callback(null, currentValue);
+                    })
+                    .on('set', (newValue, callback) => {
+                        let newVolumeValue = Math.round(Math.min(Math.max((this.maxVolume * newValue) / 100, 0), this.maxVolume));
+                        this.sending(["http://" + this.ZIDOO_IP + ":" + this.ZIDOO_PORT + "/ZidooControlCenter/RemoteControl/changeVolume?type=2&value=" + newVolumeValue]);
+                        this.platform.log('Volume Value set to: ' + newValue) + "%";
+                        callback(null);
+                    });
+            }
+            else {
+                this.volumeFan = this.accessory.getService('Zidoo Volume') ||
+                    this.accessory.addService(this.platform.Service.Fanv2, 'Zidoo Volume', 'CataNicoGaT-98FZ');
+                this.volumeFan.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+                this.volumeFan.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Zidoo Volume');
+                this.volumeFan.getCharacteristic(this.platform.Characteristic.Active)
+                    .on('get', (callback) => {
+                        let currentValue = 0;
+                        if (this.currentVolumeSwitch === true) {
+                            currentValue = 1;
+                        }
+                        callback(null, currentValue);
+                    })
+                    .on('set', (newValue, callback) => {
+                        if (newValue == 0) {
+                            if (this.currentVolume != 0) {
+                                this.sending(["http://" + this.ZIDOO_IP + ":" + this.ZIDOO_PORT + "/ZidooControlCenter/RemoteControl/changeVolume?type=2&value=" + '0']);
+                            }
+                        }
+                        else {
+                            if (this.currentVolume == 0) {
+                                this.sending(["http://" + this.ZIDOO_IP + ":" + this.ZIDOO_PORT + "/ZidooControlCenter/RemoteControl/changeVolume?type=2&value=" + this.maxVolume]);
+                            }
+                            else {
+                                this.sending(["http://" + this.ZIDOO_IP + ":" + this.ZIDOO_PORT + "/ZidooControlCenter/RemoteControl/changeVolume?type=2&value=" + this.currentVolume]);
+                            }
+                        }
+                        callback(null);
+                    });
+
+                this.volumeFan.addCharacteristic(new this.platform.Characteristic.RotationSpeed)
+                    .on('get', (callback) => {
+                        let currentValue = this.currentVolume;
+                        callback(null, currentValue);
+                    })
+                    .on('set', (newValue, callback) => {
+                        let newVolumeValue = Math.round(Math.min(Math.max((this.maxVolume * newValue) / 100, 0), this.maxVolume));
+                        this.sending(["http://" + this.ZIDOO_IP + ":" + this.ZIDOO_PORT + "/ZidooControlCenter/RemoteControl/changeVolume?type=2&value=" + newVolumeValue]);
+                        this.platform.log('Volume Value set to: ' + newValue + "%");
+
+                        callback(null);
+                    });
+            }
+        }
         if (this.config.movieControl === true) {
-            this.movieControlL = this.accessory.getService('Media Progress') ||
-                this.accessory.addService(this.platform.Service.Lightbulb, 'Media Progress', 'CataNicoGaTa-301');
-            this.movieControlL.setCharacteristic(this.platform.Characteristic.Name, 'Media Progress');
-            this.movieControlL.getCharacteristic(this.platform.Characteristic.On)
-                .on('get', (callback) => {
-                    let currentValue = this.currentMovieProgressState;
-                    callback(null, currentValue);
-                })
-                .on('set', (newValue, callback) => {
-                    this.platform.log('Movie progress state set to: ' + newValue);
-                    callback(null);
-                });
-            this.movieControlL.addCharacteristic(new this.platform.Characteristic.Brightness())
-                .on('get', (callback) => {
-                    let currentValue = this.currentMovieProgress;
-                    callback(null, currentValue);
-                })
-                .on('set', (newValue, callback) => {
-                    let newSendValue = Math.round(newValue * (this.movieRemaining) / 100);
-                    let totalMovieTime = this.movieRemaining;
-                    if (newSendValue > totalMovieTime) { newSendValue = totalMovieTime; }
-                    if (this.musicPlaying === true) {
-                        this.sending(["http://" + this.ZIDOO_IP + ":" + this.ZIDOO_PORT + "/ZidooMusicControl/v2/seekTo?time=" + newSendValue]);
-                    }
-                    else {
-                        this.sending(["http://" + this.ZIDOO_IP + ":" + this.ZIDOO_PORT + "/ZidooVideoPlay/seekTo?positon=" + newSendValue]);
-                    }
-                    this.newMovieTime(newSendValue);
-                    this.platform.log('Movie progress set to: ' + newValue + '%');
-                    callback(null);
-                });
+            if (this.config.changeDimmersToFan === false) {
+                this.movieControlL = this.accessory.getService('Media Progress') ||
+                    this.accessory.addService(this.platform.Service.Lightbulb, 'Media Progress', 'CataNicoGaTa-301');
+                this.movieControlL.setCharacteristic(this.platform.Characteristic.Name, 'Media Progress');
+                this.movieControlL.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+                this.movieControlL.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Media Progress');
+                this.movieControlL.getCharacteristic(this.platform.Characteristic.On)
+                    .on('get', (callback) => {
+                        let currentValue = this.currentMovieProgressState;
+                        callback(null, currentValue);
+                    })
+                    .on('set', (newValue, callback) => {
+                        this.platform.log('Movie progress state set to: ' + newValue);
+                        callback(null);
+                    });
+                this.movieControlL.addCharacteristic(new this.platform.Characteristic.Brightness())
+                    .on('get', (callback) => {
+                        let currentValue = this.currentMovieProgress;
+                        callback(null, currentValue);
+                    })
+                    .on('set', (newValue, callback) => {
+                        let newSendValue = Math.round(newValue * (this.movieRemaining) * 10);
+                        let totalMovieTime = this.movieRemaining * 1000;
+                        if (newSendValue > totalMovieTime) { newSendValue = totalMovieTime; }
+                        if (this.musicPlaying === true) {
+                            this.sending(["http://" + this.ZIDOO_IP + ":" + this.ZIDOO_PORT + "/ZidooMusicControl/v2/seekTo?time=" + newSendValue]);
+                        }
+                        else {
+                            this.sending(["http://" + this.ZIDOO_IP + ":" + this.ZIDOO_PORT + "/ZidooVideoPlay/seekTo?positon=" + newSendValue]);
+                        }
+                        this.newMovieTime(newSendValue);
+                        this.platform.log('Movie progress set to: ' + newValue + '%');
+                        callback(null);
+                    });
+            }
+            else {
+                this.movieControlF = this.accessory.getService('Media Progress') ||
+                    this.accessory.addService(this.platform.Service.Fanv2, 'Media Progress', 'CataNicoGaTa-301F');
+                this.movieControlF.setCharacteristic(this.platform.Characteristic.Name, 'Media Progress');
+                this.movieControlF.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+                this.movieControlF.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Media Progress');
+                this.movieControlF.getCharacteristic(this.platform.Characteristic.Active)
+                    .on('get', (callback) => {
+                        let currentValue = 0;
+                        if (this.currentMovieProgressState) {
+                            currentValue = 1
+                        }
+                        callback(null, currentValue);
+                    })
+                    .on('set', (newValue, callback) => {
+                        this.platform.log('Movie progress state set to: ' + newValue);
+                        callback(null);
+                    });
+                this.movieControlF.addCharacteristic(new this.platform.Characteristic.RotationSpeed)
+                    .on('get', (callback) => {
+                        let currentValue = this.currentMovieProgress;
+                        callback(null, currentValue);
+                    })
+                    .on('set', (newValue, callback) => {
+                        let newSendValue = Math.round(newValue * (this.movieRemaining) * 10);
+                        let totalMovieTime = this.movieRemaining * 1000;
+                        if (newSendValue > totalMovieTime) { newSendValue = totalMovieTime; }
+                        if (this.musicPlaying === true) {
+                            this.sending(["http://" + this.ZIDOO_IP + ":" + this.ZIDOO_PORT + "/ZidooMusicControl/v2/seekTo?time=" + newSendValue]);
+                        }
+                        else {
+                            this.sending(["http://" + this.ZIDOO_IP + ":" + this.ZIDOO_PORT + "/ZidooVideoPlay/seekTo?positon=" + newSendValue]);
+                        }
+                        this.newMovieTime(newSendValue);
+                        this.platform.log('Movie progress set to: ' + newValue + '%');
+                        callback(null);
+                    });
+            }
         }
         /////////////Addtional Services////////////////////////////////////////////////////////////////////////////////////
+
         if (this.config.powerB === true) {
             this.service = this.accessory.getService(this.platform.Service.Switch) || this.accessory.addService(this.platform.Service.Switch);
             this.service.setCharacteristic(this.platform.Characteristic.Name, `${accessory.context.device.zidooDisplayName} Power Switch`);
             this.service.updateCharacteristic(this.platform.Characteristic.Name, `${accessory.context.device.zidooDisplayName} Power Switch`);
+            this.service.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.service.setCharacteristic(this.platform.Characteristic.ConfiguredName, `${accessory.context.device.zidooDisplayName} Power Switch`);
             this.service.getCharacteristic(this.platform.Characteristic.On)
                 .on('set', this.setOn.bind(this))
                 .on('get', this.getOn.bind(this));
         };
-        this.play = this.accessory.getService('Play') ||
-            this.accessory.addService(this.platform.Service.Switch, 'Play', 'CataNicoGaTa-10');
-        this.play.getCharacteristic(this.platform.Characteristic.On)
-            .on('get', this.playSwitchStateGet.bind(this))
-            .on('set', this.playSwitchStateSet.bind(this));
-        this.pause = this.accessory.getService('Pause') ||
-            this.accessory.addService(this.platform.Service.Switch, 'Pause', 'CataNicoGaTa-11');
-        this.pause.getCharacteristic(this.platform.Characteristic.On)
-            .on('get', this.pauseSwitchStateGet.bind(this))
-            .on('set', this.pauseSwitchStateSet.bind(this));
-        this.stop = this.accessory.getService('Stop') ||
-            this.accessory.addService(this.platform.Service.Switch, 'Stop', 'CataNicoGaTa-12');
-        this.stop.getCharacteristic(this.platform.Characteristic.On)
-            .on('get', this.stopSwitchStateGet.bind(this))
-            .on('set', this.stopSwitchStateSet.bind(this));
+        if (!this.config.removePlayback) {
+            this.play = this.accessory.getService('Play') ||
+                this.accessory.addService(this.platform.Service.Switch, 'Play', 'CataNicoGaTa-10');
+            // this.ensureName(this.platform, this.play, 'Play')
+            this.play.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.play.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Play');
+            this.play.getCharacteristic(this.platform.Characteristic.On)
+                .on('get', this.playSwitchStateGet.bind(this))
+                .on('set', this.playSwitchStateSet.bind(this));
+            this.pause = this.accessory.getService('Pause') ||
+                this.accessory.addService(this.platform.Service.Switch, 'Pause', 'CataNicoGaTa-11');
+            this.pause.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.pause.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Pause');
+            this.pause.getCharacteristic(this.platform.Characteristic.On)
+                .on('get', this.pauseSwitchStateGet.bind(this))
+                .on('set', this.pauseSwitchStateSet.bind(this));
+            this.stop = this.accessory.getService('Stop') ||
+                this.accessory.addService(this.platform.Service.Switch, 'Stop', 'CataNicoGaTa-12');
+            this.stop.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.stop.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Stop');
+            this.stop.getCharacteristic(this.platform.Characteristic.On)
+                .on('get', this.stopSwitchStateGet.bind(this))
+                .on('set', this.stopSwitchStateSet.bind(this));
+        }
         ///////////////////////////////////Input buttons//////////////////////////////////////////////////////////////////////////
 
         ////other Controls /////////////////////////////////////////////////////////
         if (this.config.cursorUpB === true) {
             this.cursorUp = this.accessory.getService('Cursor Up') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Cursor Up', 'CataNicoGaTa-31');
+            this.cursorUp.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.cursorUp.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Cursor Up');
             this.cursorUp.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Cursor Up GET On');
@@ -602,6 +754,8 @@ class zidooAccessory {
         if (this.config.cursorDownB === true) {
             this.cursorDown = this.accessory.getService('Cursor Down') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Cursor Down', 'CataNicoGaTa-32');
+            this.cursorDown.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.cursorDown.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Cursor Down');
             this.cursorDown.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Cursor Down GET On');
@@ -622,6 +776,8 @@ class zidooAccessory {
         if (this.config.cursorLeftB === true) {
             this.cursorLeft = this.accessory.getService('Cursor Left') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Cursor Left', 'CataNicoGaTa-33');
+            this.cursorLeft.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.cursorLeft.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Cursor Left');
             this.cursorLeft.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Cursor Left GET On');
@@ -642,6 +798,8 @@ class zidooAccessory {
         if (this.config.cursorRightB === true) {
             this.cursorRight = this.accessory.getService('Cursor Right') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Cursor Right', 'CataNicoGaTa-34');
+            this.cursorRight.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.cursorRight.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Cursor Right');
             this.cursorRight.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Cursor Right GET On');
@@ -662,6 +820,8 @@ class zidooAccessory {
         if (this.config.cursorEnterB === true) {
             this.cursorEnter = this.accessory.getService('Cursor Enter') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Cursor Enter', 'CataNicoGaTa-35');
+            this.cursorEnter.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.cursorEnter.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Cursor Enter');
             this.cursorEnter.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Cursor Enter GET On');
@@ -682,6 +842,8 @@ class zidooAccessory {
         if (this.config.menuB === true) {
             this.menu = this.accessory.getService('Menu') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Menu', 'CataNicoGaTa-36');
+            this.menu.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.menu.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Menu');
             this.menu.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Menu GET On');
@@ -702,6 +864,8 @@ class zidooAccessory {
         if (this.config.backButtonB === true) {
             this.backButton = this.accessory.getService('Back') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Back', 'CataNicoGaTa-37');
+            this.backButton.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.backButton.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Back');
             this.backButton.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Back GET On');
@@ -722,6 +886,8 @@ class zidooAccessory {
         if (this.config.homeMenuB === true) {
             this.homeMenu = this.accessory.getService('Home Menu') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Home Menu', 'CataNicoGaTa-43');
+            this.homeMenu.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.homeMenu.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Home Menu');
             this.homeMenu.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Home Menu GET On');
@@ -742,6 +908,8 @@ class zidooAccessory {
         if (this.config.infoB === true) {
             this.infoButton = this.accessory.getService('Info') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Info', 'CataNicoGaTa-44');
+            this.infoButton.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.infoButton.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Info');
             this.infoButton.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Info GET On');
@@ -762,6 +930,8 @@ class zidooAccessory {
         if (this.config.pageUpB === true) {
             this.pageUp = this.accessory.getService('Page Up') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Page Up', 'CataNicoGaTa-50');
+            this.pageUp.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.pageUp.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Page Up');
             this.pageUp.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Page Up GET On');
@@ -782,6 +952,8 @@ class zidooAccessory {
         if (this.config.pageDownB === true) {
             this.pageDown = this.accessory.getService('Page Down') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Page Down', 'CataNicoGaTa-51');
+            this.pageDown.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.pageDown.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Page Down');
             this.pageDown.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Page Down GET On');
@@ -802,6 +974,8 @@ class zidooAccessory {
         if (this.config.popUpMenuB === true) {
             this.popUpMenu = this.accessory.getService('Pop-Up Menu') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Pop-Up Menu', 'CataNicoGaTa-52');
+            this.popUpMenu.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.popUpMenu.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Pop-Up Menu');
             this.popUpMenu.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Pop-Up Menu GET On');
@@ -823,6 +997,8 @@ class zidooAccessory {
         if (this.config.mediaButtons === true) {
             this.previous = this.accessory.getService('Previous') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Previous', 'CataNicoGaTa-38');
+            this.previous.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.previous.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Previous');
             this.previous.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Previous GET On');
@@ -841,6 +1017,8 @@ class zidooAccessory {
                 });
             this.next = this.accessory.getService('Next') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Next', 'CataNicoGaTa-39');
+            this.next.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.next.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Next');
             this.next.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Next GET On');
@@ -859,6 +1037,8 @@ class zidooAccessory {
                 });
             this.rewindButton = this.accessory.getService('Rewind') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Rewind', 'CataNicoGaTa-46');
+            this.rewindButton.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.rewindButton.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Rewind');
             this.rewindButton.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Rewind GET On');
@@ -877,6 +1057,8 @@ class zidooAccessory {
                 });
             this.forwardButton = this.accessory.getService('Forward') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Forward', 'CataNicoGaTa-80');
+            this.forwardButton.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.forwardButton.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Forward');
             this.forwardButton.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Forward GET On');
@@ -898,6 +1080,8 @@ class zidooAccessory {
         if (this.config.redB === true) {
             this.red = this.accessory.getService('Red') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Red', 'CataNicoGaTa-53');
+            this.red.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.red.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Red');
             this.red.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Red GET On');
@@ -918,6 +1102,8 @@ class zidooAccessory {
         if (this.config.greenB === true) {
             this.green = this.accessory.getService('Green') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Green', 'CataNicoGaTa-54');
+            this.green.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.green.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Green');
             this.green.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Green GET On');
@@ -938,6 +1124,8 @@ class zidooAccessory {
         if (this.config.blueB === true) {
             this.blue = this.accessory.getService('Blue') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Blue', 'CataNicoGaTa-55');
+            this.blue.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.blue.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Blue');
             this.blue.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Blue GET On');
@@ -958,6 +1146,8 @@ class zidooAccessory {
         if (this.config.yellowB === true) {
             this.yellow = this.accessory.getService('Yellow') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Yellow', 'CataNicoGaTa-56');
+            this.yellow.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.yellow.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Yellow');
             this.yellow.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Yellow GET On');
@@ -978,6 +1168,8 @@ class zidooAccessory {
         if (this.config.audioB === true) {
             this.audio = this.accessory.getService('Audio') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Audio', 'CataNicoGaTa-57');
+            this.audio.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.audio.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Audio');
             this.audio.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Audio GET On');
@@ -998,6 +1190,8 @@ class zidooAccessory {
         if (this.config.subtitleB === true) {
             this.subtitle = this.accessory.getService('Subtitle') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Subtitle', 'CataNicoGaTa-58');
+            this.subtitle.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.subtitle.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Subtitle');
             this.subtitle.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Subtitle GET On');
@@ -1018,6 +1212,8 @@ class zidooAccessory {
         if (this.config.repeatB === true) {
             this.repeat = this.accessory.getService('Repeat') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Repeat', 'CataNicoGaTa-63');
+            this.repeat.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.repeat.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Repeat');
             this.repeat.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Repeat GET On');
@@ -1039,6 +1235,8 @@ class zidooAccessory {
 
             this.pip = this.accessory.getService('PIP') ||
                 this.accessory.addService(this.platform.Service.Switch, 'PIP', 'CataNicoGaTa-64');
+            this.pip.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.pip.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'PIP');
             this.pip.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('PIP GET On');
@@ -1059,6 +1257,8 @@ class zidooAccessory {
         if (this.config.resolutionB === true) {
             this.resolution = this.accessory.getService('Resolution') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Resolution', 'CataNicoGaTa-65');
+            this.resolution.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.resolution.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Resolution');
             this.resolution.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Resolution GET On');
@@ -1080,6 +1280,8 @@ class zidooAccessory {
         if (this.config.muteB === true) {
             this.mute = this.accessory.getService('Mute') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Mute', 'CataNicoGaTa-9001');
+            this.mute.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.mute.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Mute');
             this.mute.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Mute GET On');
@@ -1100,6 +1302,8 @@ class zidooAccessory {
         if (this.config.recordB === true) {
             this.record = this.accessory.getService('Record') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Record', 'CataNicoGaTa-9002');
+            this.record.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.record.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Record');
             this.record.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Record GET On');
@@ -1120,6 +1324,8 @@ class zidooAccessory {
         if (this.config.movieB === true) {
             this.movie = this.accessory.getService('Movie') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Movie', 'CataNicoGaTa-9003');
+            this.movie.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.movie.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Movie');
             this.movie.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Movie GET On');
@@ -1140,6 +1346,8 @@ class zidooAccessory {
         if (this.config.musicB === true) {
             this.music = this.accessory.getService('Music') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Music', 'CataNicoGaTa-9004');
+            this.music.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.music.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Music');
             this.music.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Music GET On');
@@ -1160,6 +1368,8 @@ class zidooAccessory {
         if (this.config.photoB === true) {
             this.photo = this.accessory.getService('Photo') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Photo', 'CataNicoGaTa-9005');
+            this.photo.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.photo.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Photo');
             this.photo.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Photo GET On');
@@ -1180,6 +1390,8 @@ class zidooAccessory {
         if (this.config.fileB === true) {
             this.file = this.accessory.getService('File') ||
                 this.accessory.addService(this.platform.Service.Switch, 'File', 'CataNicoGaTa-9006');
+            this.file.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.file.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'File');
             this.file.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('File GET On');
@@ -1200,6 +1412,8 @@ class zidooAccessory {
         if (this.config.lightB === true) {
             this.light = this.accessory.getService('Light') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Light', 'CataNicoGaTa-9007');
+            this.light.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.light.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Light');
             this.light.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Light GET On');
@@ -1220,6 +1434,8 @@ class zidooAccessory {
         if (this.config.screenshotB === true) {
             this.screenshot = this.accessory.getService('Screenshot') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Screenshot', 'CataNicoGaTa-9008');
+            this.screenshot.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.screenshot.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Screenshot');
             this.screenshot.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Screenshot GET On');
@@ -1240,6 +1456,8 @@ class zidooAccessory {
         if (this.config.appSwitchB === true) {
             this.appSwitch = this.accessory.getService('App Switch') ||
                 this.accessory.addService(this.platform.Service.Switch, 'App Switch', 'CataNicoGaTa-9009');
+            this.appSwitch.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.appSwitch.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'App Switch');
             this.appSwitch.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('App Switch GET On');
@@ -1260,6 +1478,8 @@ class zidooAccessory {
         if (this.config.rebootB === true) {
             this.rebootB = this.accessory.getService('Reboot') ||
                 this.accessory.addService(this.platform.Service.Switch, 'Reboot', 'CataNicoGaTa-X09');
+            this.rebootB.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.rebootB.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Reboot');
             this.rebootB.getCharacteristic(this.platform.Characteristic.On)
                 .on('get', (callback) => {
                     this.platform.log.debug('Reboot GET On');
@@ -1277,14 +1497,54 @@ class zidooAccessory {
                     callback(null);
                 });
         }
+        if (this.config.remainMovieTimer) {
+            this.movieTimer = accessory.getService(this.platform.Service.Valve) || accessory.addService(this.platform.Service.Valve, 'Zidoo Movie Timer', 'Movie Timer');
+            this.movieTimer.setCharacteristic(this.platform.Characteristic.Name, 'Zidoo Timer');
+            this.movieTimer.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+            this.movieTimer.setCharacteristic(this.platform.Characteristic.ConfiguredName, 'Zidoo Timer');
+            this.movieTimer.setCharacteristic(this.platform.Characteristic.ValveType, this.platform.Characteristic.ValveType.IRRIGATION);
+            this.movieTimer.getCharacteristic(this.platform.Characteristic.Active)
+                .on('get', (callback) => {
+                    let currentValue = this.currentMovieProgressState ? 1 : 0
+                    callback(null, currentValue);
+                })
+                .on('set', (value, callback) => {
+                    callback(null);
+                });
+            this.movieTimer.setCharacteristic(this.platform.Characteristic.InUse, this.platform.Characteristic.InUse.NOT_IN_USE);
+            this.movieTimer.getCharacteristic(this.platform.Characteristic.RemainingDuration)
+                .on('get', (callback) => {
+                    let currentValue = (this.movieRemaining - this.movieElapsed);
+                    callback(null, currentValue);
+                })
+                .setProps({
+                    maxValue: 86400 / 4, // 1 day
+                });
+            this.movieTimer.getCharacteristic(this.platform.Characteristic.SetDuration)
+                .on('get', (callback) => {
+                    let currentValue = this.movieRemaining;
+                    callback(null, currentValue);
+                })
+                .setProps({
+                    maxValue: 86400 / 4, // 1 day
+                });
 
+        }
         ///////////////Clean up. Delete services not in used////////////////////////////////
-
+        if (this.config.remainMovieTimer === false) {
+            this.accessory.removeService(this.movieTimer);
+        }
+        if (this.config.removePlayback === true) {
+            this.accessory.removeService(this.play);
+            this.accessory.removeService(this.stop);
+            this.accessory.removeService(this.pause);
+        }
         if (this.config.powerB === false) {
             this.accessory.removeService(this.service);
         }
         if (this.config.movieControl === false) {
             this.accessory.removeService(this.movieControlL);
+            this.accessory.removeService(this.movieControlF);
         }
         if (this.config.cursorUpB === false) {
             this.accessory.removeService(this.cursorUp);
@@ -1390,7 +1650,18 @@ class zidooAccessory {
         if (this.config.rebootB === false) {
             this.accessory.removeService(this.rebootB);
         }
-
+        if (this.config.changeDimmersToFan === false) {
+            this.accessory.removeService(this.volumeFan);
+            this.accessory.removeService(this.movieControlF);
+        }
+        if (this.config.changeDimmersToFan === true) {
+            this.accessory.removeService(this.movieControlL);
+            this.accessory.removeService(this.volumeDimmer);
+        }
+        if (this.config.volume === false) {
+            this.accessory.removeService(this.volumeDimmer);
+            this.accessory.removeService(this.volumeFan);
+        }
         //////////////////Connecting to Zidoo
         if (this.config.autoIPMac === true) {
             this.discoveryUPD();
@@ -1408,6 +1679,9 @@ class zidooAccessory {
 
 
                 }, 500);
+                setTimeout(() => {
+                    this.sending([this.query('VOLUME STATUS')]);
+                }, 750)
                 if (this.httpNotResponding >= this.reconnectionTry) {
                     this.turnOffAll();
                     if (this.config.autoIPMac === true) {
@@ -1434,43 +1708,47 @@ class zidooAccessory {
                 if (this.tvService.getCharacteristic(this.platform.Characteristic.Active).value !== this.powerStateTV) {
                     this.tvService.updateCharacteristic(this.platform.Characteristic.Active, this.powerStateTV);
                 }
-                if (this.play.getCharacteristic(this.platform.Characteristic.On).value !== this.playBackState[0]) {
-                    this.play.updateCharacteristic(this.platform.Characteristic.On, this.playBackState[0]);
-                }
-                if (this.pause.getCharacteristic(this.platform.Characteristic.On).value !== this.playBackState[1]) {
-                    this.pause.updateCharacteristic(this.platform.Characteristic.On, this.playBackState[1]);
-                }
-                if (this.stop.getCharacteristic(this.platform.Characteristic.On).value !== this.playBackState[2]) {
-                    this.stop.updateCharacteristic(this.platform.Characteristic.On, this.playBackState[2]);
+                if (!this.config.removePlayback) {
+                    if (this.play.getCharacteristic(this.platform.Characteristic.On).value !== this.playBackState[0]) {
+                        this.play.updateCharacteristic(this.platform.Characteristic.On, this.playBackState[0]);
+                    }
+                    if (this.pause.getCharacteristic(this.platform.Characteristic.On).value !== this.playBackState[1]) {
+                        this.pause.updateCharacteristic(this.platform.Characteristic.On, this.playBackState[1]);
+                    }
+                    if (this.stop.getCharacteristic(this.platform.Characteristic.On).value !== this.playBackState[2]) {
+                        this.stop.updateCharacteristic(this.platform.Characteristic.On, this.playBackState[2]);
+                    }
                 }
                 if (this.videoAudioTitle.getCharacteristic(this.platform.Characteristic.ConfiguredName).value !== this.inputName) {
                     this.platform.log.debug('Updating Title');
-                    this.videoAudioTitle.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.inputName);
+                    //  this.videoAudioTitle.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.inputName);
                     this.videoAudioTitle.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.inputName);
                 }
                 if (this.runtime.getCharacteristic(this.platform.Characteristic.ConfiguredName).value !== this.mediaDuration) {
                     this.platform.log.debug('Updating Runtime');
                     this.runtime.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.mediaDuration);
-                    this.runtime.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.mediaDuration);
+                    //this.runtime.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.mediaDuration);
                 }
                 if (this.videoFormat.getCharacteristic(this.platform.Characteristic.ConfiguredName).value !== this.mediaVideoFormat) {
-                    this.platform.log.debug('Updating Video Format');
-                    this.videoFormat.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.mediaVideoFormat);
+                    this.platform.log.debug('Updating Video Information');
+                    // this.videoFormat.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.mediaVideoFormat);
                     this.videoFormat.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.mediaVideoFormat);
                 }
                 if (this.audioFormat.getCharacteristic(this.platform.Characteristic.ConfiguredName).value !== this.mediaAudioFormat) {
-                    this.platform.log.debug('Updating Audio Format');
-                    this.audioFormat.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.mediaAudioFormat);
+                    this.platform.log.debug('Updating Audio Information');
+                    //this.audioFormat.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.mediaAudioFormat);
                     this.audioFormat.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.mediaAudioFormat);
                 }
                 if (this.audioLanguage.getCharacteristic(this.platform.Characteristic.ConfiguredName).value !== this.language) {
                     this.platform.log.debug('Updating Language');
-                    this.audioLanguage.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.language);
+                    // this.audioLanguage.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.language);
                     this.audioLanguage.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.language);
                 }
-
-                //this.videoAudioElapseTime.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.mediaElapse);
-                //this.videoAudioElapseTime.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.mediaElapse);
+                if (this.videoAudioElapseTime.getCharacteristic(this.platform.Characteristic.ConfiguredName).value !== this.subtitleInfo) {
+                    this.platform.log.debug('Updating Additional Information');
+                    // this.videoAudioElapseTime.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.subtitleInfo);
+                    this.videoAudioElapseTime.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.subtitleInfo);
+                }
             }
             else {
                 setTimeout(() => {
@@ -1481,7 +1759,24 @@ class zidooAccessory {
 
         }, this.config.pollingInterval);
     }
+    ////Recover names from Homekit
 
+    ensureName(hap, service, name) {
+        const key = [
+            `homebridge-zidoo-androidtv`,
+            `configured-name`,
+            name.replaceAll(" ", "_"),
+        ].join("-");
+        service.addOptionalCharacteristic(hap.Characteristic.ConfiguredName);
+        if (!hap.HAPStorage.storage().getItemSync(key)) {
+            service.setCharacteristic(hap.Characteristic.ConfiguredName, name);
+        }
+        service
+            .getCharacteristic(hap.Characteristic.ConfiguredName)
+            .on("change", ({ newValue }) => {
+                hap.HAPStorage.storage().setItemSync(key, newValue);
+            });
+    }
     ////////////////Zidoo discovery
     discoveryUPD() {
         this.discovery = udp.createSocket({ type: 'udp4', reuseAddr: true });
@@ -1644,7 +1939,7 @@ class zidooAccessory {
     }
     /////////////////Command Log
     commandLog(commandPress) {
-        if (commandPress.includes('getModel') || commandPress.includes('getState') || commandPress.includes('getPlayStatus')) {
+        if (commandPress.includes('getModel') || commandPress.includes('getState') || commandPress.includes('getPlayStatus') || commandPress.includes('volumeStatus')) {
             this.platform.log.debug(`Sending: ${this.commandName(commandPress)} Command`);
         }
         else {
@@ -1673,6 +1968,9 @@ class zidooAccessory {
                 }
                 else if (url.includes('seek')) {
                     key = 'seek'
+                }
+                else if (url.includes('RemoteControl/changeVolume?type=')) {
+                    key = 'volumeStatus'
                 }
                 else {
                     let key1 = url.split('=');
@@ -1708,6 +2006,39 @@ class zidooAccessory {
     }
 
     //////////Current Status//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    newVolumeStatus(newVolumeNum) {
+        if (this.turnOffCommand !== true || newVolumeNum === 0) {
+            if (this.currentVolume !== newVolumeNum) {
+                this.currentVolume = newVolumeNum;
+                if (newVolumeNum === 0) {
+                    this.currentMuteState = true;
+                    this.currentVolumeSwitch = false;
+                }
+                if (newVolumeNum !== 0) {
+                    this.currentMuteState = false;
+                    this.currentVolumeSwitch = true;
+                }
+                this.speakerService.updateCharacteristic(this.platform.Characteristic.Volume, this.currentVolume);
+                this.speakerService.updateCharacteristic(this.platform.Characteristic.Mute, this.currentMuteState);
+                // this.speakerService.getCharacteristic(this.platform.Characteristic.Volume).updateValue(this.currentVolume);
+                // this.speakerService.getCharacteristic(this.platform.Characteristic.Mute).updateValue(this.currentMuteState)
+                if (this.config.volume === true) {
+                    if (this.config.changeDimmersToFan === false) {
+                        this.volumeDimmer.updateCharacteristic(this.platform.Characteristic.Brightness, this.currentVolume);
+                        //this.volumeDimmer.getCharacteristic(this.platform.Characteristic.Brightness).updateValue(this.currentVolume);
+                        this.volumeDimmer.updateCharacteristic(this.platform.Characteristic.On, this.currentVolumeSwitch);
+                        //this.volumeDimmer.getCharacteristic(this.platform.Characteristic.On).updateValue(this.currentVolumeSwitch);
+                    }
+                    else {
+                        this.volumeFan.updateCharacteristic(this.platform.Characteristic.RotationSpeed, this.currentVolume);
+                        // this.volumeFan.getCharacteristic(this.platform.Characteristic.RotationSpeed).updateValue(this.currentVolume);
+                        this.volumeFan.updateCharacteristic(this.platform.Characteristic.Active, this.currentVolumeSwitch === true ? 1 : 0);
+                        // this.volumeFan.getCharacteristic(this.platform.Characteristic.Active).updateValue(this.currentVolumeSwitch === true ? 1 : 0);
+                    }
+                }
+            }
+        }
+    }
     newAudioStatus(audio) {
         this.platform.log.debug(audio);
         let audioFormat = '';
@@ -1734,59 +2065,51 @@ class zidooAccessory {
         }
         else if (audio.includes('LPCM')) {
             audioFormat = 'LPCM';
-
         }
         else if (audio.includes('MPEG')) {
             audioFormat = 'MPEG Audio';
-
         }
         else if (audio.includes('CD Audio')) {
             audioFormat = 'CD Audio';
-
         }
         else {
             audioFormat = 'Unknown';
-
         }
-
         this.newAudioFormat(audioFormat);
-    }
-    rightVideoFormat(videoFormat, fps) {
-        if (videoFormat.includes('DV')) {
-            videoFormat = 'Dolby Vision';
-        }
-        else if (videoFormat.includes("HLG")) {
-            videoFormat = 'HLG';
-        }
-        else if (!videoFormat.includes('HDR')) {
-            videoFormat = 'SDR';
-        }
-        else {
-            videoFormat = videoFormat;
-        }
-        this.platform.log.debug(videoFormat + " " + fps + "fps");
-        this.newVideoFormat(videoFormat + " " + fps + "fps");
     }
     newInputName(newName) {
         if (typeof newName !== 'undefined') {
             this.platform.log.debug('New input name: ' + newName);
             if (this.inputName !== newName) {
-                this.platform.log.debug(newName);
+                //this.platform.log(newName);
                 this.inputName = newName;
                 this.platform.log.debug(this.inputName);
                 this.videoAudioTitle.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.inputName);
-                this.videoAudioTitle.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.inputName);
+                //this.videoAudioTitle.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.inputName);
             }
         }
     }
     newInputDuration(newDuration) {
         if (typeof newDuration !== 'undefined') {
             this.platform.log.debug('New input duraiton: ' + newDuration);
-            if (this.mediaDuration !== newDuration) {
-                this.platform.log.debug(newDuration);
+            if (!newDuration.includes('Runtime')) {
+                let hourMintue = ''
+                if (this.movieRemaining > 3600) {
+                    hourMintue = 'Hours';
+                }
+                else if (this.movieRemaining == 3600) {
+                    hourMintue = 'Hour';
+                }
+                else {
+                    hourMintue = 'Minutes';
+                }
+                this.mediaDuration = 'Runtime: ' + newDuration + ' ' + hourMintue;
+            }
+            else {
                 this.mediaDuration = newDuration;
-                this.runtime.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.mediaDuration);
-                this.runtime.getCharacteristic(this.platform.Characteristic.ConfiguredName).updateValue(this.mediaDuration);
+            }
+            if (this.runtime.getCharacteristic(this.platform.Characteristic.ConfiguredName).value !== this.mediaDuration) {
+                this.runtime.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.mediaDuration)
             }
         }
     }
@@ -1803,21 +2126,19 @@ class zidooAccessory {
             }
         }
     }
-    newElapsedTime(elapsedTime) {
-        /*
-        this.platform.log.debug(elapsedTime);
-        if (this.mediaElapse !== elapsedTime) {
-            this.mediaElapse = elapsedTime;
-            this.videoAudioElapseTime.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.mediaElapse);
+    newSubtitle(newSub) {
+        this.platform.log.debug(newSub);
+        if (this.subtitleInfo !== newSub) {
+            this.subtitleInfo = newSub;
+            this.videoAudioElapseTime.updateCharacteristic(this.platform.Characteristic.ConfiguredName, this.subtitleInfo);
             this.videoAudioElapseTime.updateCharacteristic(this.platform.Characteristic.TargetVisibilityState, this.showState ? this.platform.Characteristic.TargetVisibilityState.SHOWN : this.platform.Characteristic.TargetVisibilityState.HIDDEN);
             this.videoAudioElapseTime.updateCharacteristic(this.platform.Characteristic.CurrentVisibilityState, this.showState ? this.platform.Characteristic.CurrentVisibilityState.SHOWN : this.platform.Characteristic.CurrentVisibilityState.HIDDEN);
         }
-        */
     }
     newAudioFormat(audioType) {
         if (typeof audioType !== 'undefined') {
             this.platform.log.debug(audioType);
-            this.platform.log.debug('New audio format: ' + audioType);
+            this.platform.log.debug('New audio information: ' + audioType);
             this.platform.log.debug(audioType);
             if (this.mediaAudioFormat !== audioType) {
                 this.mediaAudioFormat = audioType;
@@ -1839,7 +2160,6 @@ class zidooAccessory {
             }
         }
     }
-
     newMovieTime(newMovieTime) {
         if (newMovieTime === 0) {
             this.currentMovieProgressState = false;
@@ -1856,10 +2176,34 @@ class zidooAccessory {
         }
         if (this.currentMovieProgress > 100) { this.currentMovieProgress = 100 }
         if (this.config.movieControl === true) {
-            this.movieControlL.updateCharacteristic(this.platform.Characteristic.Brightness, this.currentMovieProgress);
-            this.movieControlL.getCharacteristic(this.platform.Characteristic.Brightness).updateValue(this.currentMovieProgress);
-            this.movieControlL.updateCharacteristic(this.platform.Characteristic.On, this.currentMovieProgressState);
-            this.movieControlL.getCharacteristic(this.platform.Characteristic.On).updateValue(this.currentMovieProgressState);
+            if (this.config.changeDimmersToFan === false) {
+                if (this.movieControlL.getCharacteristic(this.platform.Characteristic.Brightness).value !== this.currentMovieProgress) {
+                    this.movieControlL.updateCharacteristic(this.platform.Characteristic.Brightness, this.currentMovieProgress);
+                    //this.movieControlL.getCharacteristic(this.platform.Characteristic.Brightness).updateValue(this.currentMovieProgress);
+                    this.movieControlL.updateCharacteristic(this.platform.Characteristic.On, this.currentMovieProgressState);
+                    //this.movieControlL.getCharacteristic(this.platform.Characteristic.On).updateValue(this.currentMovieProgressState);
+                }
+            }
+            else {
+                if (this.movieControlF.getCharacteristic(this.platform.Characteristic.RotationSpeed).value !== this.currentMovieProgress) {
+                    this.movieControlF.updateCharacteristic(this.platform.Characteristic.RotationSpeed, this.currentMovieProgress);
+                    // this.movieControlF.getCharacteristic(this.platform.Characteristic.RotationSpeed).updateValue(this.currentMovieProgress);
+                    this.movieControlF.updateCharacteristic(this.platform.Characteristic.Active, this.currentMovieProgressState === true ? 1 : 0);
+                    //this.movieControlF.getCharacteristic(this.platform.Characteristic.Active).updateValue(this.currentMovieProgressState === true ? 1 : 0);
+                }
+            }
+        }
+        if (this.config.remainMovieTimer) {
+            if (this.movieTimer.getCharacteristic(this.platform.Characteristic.Active).value != this.currentMovieProgressState ? 1 : 0) {
+                this.movieTimer.updateCharacteristic(this.platform.Characteristic.Active, this.currentMovieProgressState ? 1 : 0);
+                this.movieTimer.updateCharacteristic(this.platform.Characteristic.InUse, this.currentMovieProgressState ? 1 : 0);
+            }
+            if (this.movieElapsed !== this.movieTimer.getCharacteristic(this.platform.Characteristic.RemainingDuration).value) {
+                this.movieTimer.updateCharacteristic(this.platform.Characteristic.RemainingDuration, (this.movieRemaining - this.movieElapsed));
+            }
+            if (this.movieRemaining !== this.movieTimer.getCharacteristic(this.platform.Characteristic.SetDuration).value) {
+                this.movieTimer.updateCharacteristic(this.platform.Characteristic.SetDuration, this.movieRemaining);
+            }
         }
     }
     newPowerState(newValue) {
@@ -1872,16 +2216,16 @@ class zidooAccessory {
         if (this.powerState !== newValue) {
             this.powerState = newValue;
             this.tvService.updateCharacteristic(this.platform.Characteristic.Active, this.powerStateTV);
-            this.tvService.getCharacteristic(this.platform.Characteristic.Active).updateValue(this.powerStateTV);
+            //this.tvService.getCharacteristic(this.platform.Characteristic.Active).updateValue(this.powerStateTV);
             if (this.config.powerB === true) {
                 this.service.updateCharacteristic(this.platform.Characteristic.On, this.powerState);
-                this.service.getCharacteristic(this.platform.Characteristic.On).updateValue(this.powerState);
+                //this.service.getCharacteristic(this.platform.Characteristic.On).updateValue(this.powerState);
             }
         }
     }
     newPlayBackState(newPlay) {
         this.playBackState = newPlay;
-        if (this.turnOffCommand === false || this.playBackState === [false, false, false]) {
+        if (this.turnOffCommand == false || this.playBackState == [false, false, false]) {
             if (this.playBackState[0] === true) {
                 this.mediaState = 0;
             }
@@ -1898,23 +2242,25 @@ class zidooAccessory {
             if (this.tvService.getCharacteristic(this.platform.Characteristic.Active).value !== this.powerStateTV) {
                 this.tvService.updateCharacteristic(this.platform.Characteristic.Active, this.powerStateTV);
             }
-            if (this.play.getCharacteristic(this.platform.Characteristic.On).value !== this.playBackState[0]) {
-                this.play.updateCharacteristic(this.platform.Characteristic.On, this.playBackState[0]);
-                this.play.getCharacteristic(this.platform.Characteristic.On).updateValue(this.playBackState[0]);
-                this.tvService.updateCharacteristic(this.platform.Characteristic.CurrentMediaState, this.mediaState);
-                this.tvService.getCharacteristic(this.platform.Characteristic.CurrentMediaState).updateValue(this.mediaState);
-            }
-            if (this.pause.getCharacteristic(this.platform.Characteristic.On).value !== this.playBackState[1]) {
-                this.pause.updateCharacteristic(this.platform.Characteristic.On, this.playBackState[1]);
-                this.pause.getCharacteristic(this.platform.Characteristic.On).updateValue(this.playBackState[1]);
-                this.tvService.updateCharacteristic(this.platform.Characteristic.CurrentMediaState, this.mediaState);
-                this.tvService.getCharacteristic(this.platform.Characteristic.CurrentMediaState).updateValue(this.mediaState);
-            }
-            if (this.stop.getCharacteristic(this.platform.Characteristic.On).value !== this.playBackState[2]) {
-                this.stop.updateCharacteristic(this.platform.Characteristic.On, this.playBackState[2]);
-                this.stop.getCharacteristic(this.platform.Characteristic.On).updateValue(this.playBackState[2]);
-                this.tvService.updateCharacteristic(this.platform.Characteristic.CurrentMediaState, this.mediaState);
-                this.tvService.getCharacteristic(this.platform.Characteristic.CurrentMediaState).updateValue(this.mediaState);
+            if (!this.config.removePlayback) {
+                if (this.play.getCharacteristic(this.platform.Characteristic.On).value !== this.playBackState[0]) {
+                    this.play.updateCharacteristic(this.platform.Characteristic.On, this.playBackState[0]);
+                    //this.play.getCharacteristic(this.platform.Characteristic.On).updateValue(this.playBackState[0]);
+                    this.tvService.updateCharacteristic(this.platform.Characteristic.CurrentMediaState, this.mediaState);
+                    //this.tvService.getCharacteristic(this.platform.Characteristic.CurrentMediaState).updateValue(this.mediaState);
+                }
+                if (this.pause.getCharacteristic(this.platform.Characteristic.On).value !== this.playBackState[1]) {
+                    this.pause.updateCharacteristic(this.platform.Characteristic.On, this.playBackState[1]);
+                    //this.pause.getCharacteristic(this.platform.Characteristic.On).updateValue(this.playBackState[1]);
+                    this.tvService.updateCharacteristic(this.platform.Characteristic.CurrentMediaState, this.mediaState);
+                    //this.tvService.getCharacteristic(this.platform.Characteristic.CurrentMediaState).updateValue(this.mediaState);
+                }
+                if (this.stop.getCharacteristic(this.platform.Characteristic.On).value !== this.playBackState[2]) {
+                    this.stop.updateCharacteristic(this.platform.Characteristic.On, this.playBackState[2]);
+                    //this.stop.getCharacteristic(this.platform.Characteristic.On).updateValue(this.playBackState[2]);
+                    this.tvService.updateCharacteristic(this.platform.Characteristic.CurrentMediaState, this.mediaState);
+                    //this.tvService.getCharacteristic(this.platform.Characteristic.CurrentMediaState).updateValue(this.mediaState);
+                }
             }
         }
     }
@@ -1945,7 +2291,7 @@ class zidooAccessory {
         else {
         }
         this.tvService.updateCharacteristic(this.platform.Characteristic.ActiveIdentifier, this.inputID);
-        this.tvService.getCharacteristic(this.platform.Characteristic.ActiveIdentifier).updateValue(this.inputID);
+        // this.tvService.getCharacteristic(this.platform.Characteristic.ActiveIdentifier).updateValue(this.inputID);
     }
     /////////////////HTTP Event decoder
     httpEventDecoder(rawData, key) {
@@ -1962,7 +2308,7 @@ class zidooAccessory {
             else {
                 this.macReceived = true;
             }
-            if (key.includes('getModel') || key.includes('getState') || key.includes('getPlayStatus')) {
+            if (key.includes('getModel') || key.includes('getState') || key.includes('getPlayStatus') || key.includes('volumeStatus')) {
                 this.platform.log.debug(`Response: ${this.commandName(key)} Command Executed`);
             }
             else {
@@ -1970,7 +2316,11 @@ class zidooAccessory {
             }
             if (key.includes('Power')) {
                 this.turnOffAll();
-
+            }
+            else if (key.includes('volumeStatus')) {
+                this.maxVolume = rawData.maxVolume;
+                let normalizedVolume = Math.round((rawData.currentVolume / this.maxVolume) * 100);
+                this.newVolumeStatus(normalizedVolume)
             }
             else if (key.includes('MediaPlay')) {
                 if (key.includes('MediaPlay.Pause')) {
@@ -2011,64 +2361,175 @@ class zidooAccessory {
                 }
                 if (rawData.video.path !== '') {
                     this.platform.log.debug(rawData);
+                    let movie3D = '';
+                    if (rawData['3D'].information == '3D') {
+                        movie3D = ' (3D)'
+                    }
+                    else {
+                        movie3D == '';
+                    }
                     //////////////////////Media Name///////////////////////////////
                     if (rawData.video.title === 'AVCHD') {
                         let newNameInput = rawData.video.path.split('/');
                         let nameInput = '';
                         if (Object.values(newNameInput)[Object.keys(newNameInput).length - 1] === 'AVCHD') {
                             nameInput = Object.values(newNameInput)[Object.keys(newNameInput).length - 2];
-                            this.newInputName(nameInput);
+                            if (nameInput.includes('.iso') || nameInput.includes('.ISO') || nameInput.includes('.MKV') || nameInput.includes('.mkv') || nameInput.includes('.MP4') || nameInput.includes('.mp4') || nameInput.includes('.MP3') || nameInput.includes('.mp3')) {
+                                nameInput = nameInput.substring(0, nameInput.length - 4);
+                            }
+                            this.newInputName(this.nameLengthCheck(nameInput + movie3D));
                         }
                         else {
-                            this.newInputName(rawData.video.title);
+                            fnameInput = rawData.video.title;
+                            if (nameInput.includes('.iso') || nameInput.includes('.ISO') || nameInput.includes('.MKV') || nameInput.includes('.mkv') || nameInput.includes('.MP4') || nameInput.includes('.mp4') || nameInput.includes('.MP3') || nameInput.includes('.mp3')) {
+                                nameInput = nameInput.substring(0, nameInput.length - 4);
+                            }
+                            this.newInputName(this.nameLengthCheck(nameInput + movie3D));
                         }
                     }
                     else {
-                        this.newInputName(rawData.video.title);
+                        let nameInput = rawData.video.title;
+                        if (nameInput.includes('.iso') || nameInput.includes('.ISO') || nameInput.includes('.MKV') || nameInput.includes('.mkv') || nameInput.includes('.MP4') || nameInput.includes('.mp4') || nameInput.includes('.MP3') || nameInput.includes('.mp3')) {
+                            nameInput = nameInput.substring(0, nameInput.length - 4);
+                        }
+                        this.newInputName(this.nameLengthCheck(nameInput + movie3D));
                     }
                     //////////Media runtime////////////////////
-                    this.movieRemaining = parseInt(rawData.video.duration);
+                    this.movieRemaining = parseInt(rawData.video.duration / 1000);
                     let runtimeNumber = this.secondsToTime(parseInt(rawData.video.duration) / 1000);
                     if (runtimeNumber.startsWith('0')) {
                         runtimeNumber = runtimeNumber.substring(1);
                     }
                     this.newInputDuration(runtimeNumber);
                     //////////////////Media Current position
-                    this.newMovieTime(parseInt(rawData.video.currentPosition));
-                    ///////////////Audio format
-                    this.platform.log.debug(rawData.audio.information);
-                    this.newAudioStatus(rawData.audio.information);
+                    this.movieElapsed = parseInt(rawData.video.currentPosition) / 1000;
+                    this.newMovieTime(parseInt(rawData.video.currentPosition) / 1000);
 
-                    ////////////////////Media elapsed time////////////////////////////
-                    /*
-                    let elapsedRuntimeNumber = this.secondsToTime(parseInt(rawData.video.currentPosition) / 1000);
-                    if (elapsedRuntimeNumber.startsWith('0')) {
-                        elapsedRuntimeNumber = elapsedRuntimeNumber.substring(1);
-                        this.newElapsedTime(elapsedRuntimeNumber);
-                    }
-                    else {
-                        this.newElapsedTime(elapsedRuntimeNumber);
-                    }
-                    */
+
+                    //////////////////////////////////////////////////////////////////
+
                     if (typeof rawData.video.output !== 'undefined') {
                         //////////////Video format////////////////////////
                         let videoOutput = rawData.video.output.split(' ');
                         this.platform.log.debug(videoOutput);
                         this.platform.log.debug(Object.values(videoOutput)[Object.keys(videoOutput).length - 1]);
+                        let currentBitrate = rawData.video.bitrate;
+                        /////
+                        let videoHeight = rawData.video.height;
+                        let videoWitdth = rawData.video.width;
+                        /////
+                        let movieAspectRatio = videoOutput[0];
+                        let movieFileSize = rawData.video.filesize;
+                        let framesPerSecond = Math.round(rawData.video.fps * 1000) / 1000;
+                        let movieInfo = '';
+                        if (videoHeight >= 2160) {
+                            movieInfo = '4K Video (' + movieAspectRatio + ')';
+                        }
+                        else if (videoHeight > 1080) {
+                            movieInfo = 'UHD Video (' + movieAspectRatio + ')';
+                        }
+                        else if (videoHeight == 1080) {
+                            movieInfo = 'Full HD Video (' + movieAspectRatio + ')';
+                        }
+                        else if (videoHeight == 720) {
+                            movieInfo = 'HD Video (' + movieAspectRatio + ')';
+                        }
+                        else {
+                            movieInfo = 'SD Video (' + movieAspectRatio + ')';
+                        }
 
-                        this.rightVideoFormat(Object.values(videoOutput)[Object.keys(videoOutput).length - 1], Math.round(rawData.video.fps * 1000) / 1000);
+                        let hdrFormat = rawData.video.output;
 
+                        if (hdrFormat.includes('DV')) {
+                            hdrFormat = 'Dolby Vision';
+                        }
+                        else if (hdrFormat.includes("HLG")) {
+                            hdrFormat = 'HLG';
+                        }
+                        else if (hdrFormat.includes('+') || hdrFormat.includes('PLUS')) {
+                            hdrFormat = 'HDR10+';
+                        }
+                        else if (!hdrFormat.includes('HDR')) {
+                            hdrFormat = 'SDR';
+                        }
+                        else {
+                            hdrFormat = 'HDR';
+                        }
+                        this.newVideoFormat(this.nameLengthCheck(hdrFormat + ' ' + movieInfo + ' at ' + framesPerSecond + ' Hz and ' + currentBitrate));
                         //////////Audio Lnaguage
+
                         let languageOutput = rawData.audio.information.split(' ');
-                        this.platform.log.debug(Object.values(languageOutput)[0]);
-                        this.newLanguage(Object.values(languageOutput)[0]);
+                        this.platform.log.debug(Object.values(languageOutput)[0] + ' ' + languageOutput[languageOutput.length - 1]);
+
+                        this.newLanguage(this.nameLengthCheck('Audio: ' + Object.values(languageOutput)[0] + ' ' + languageOutput[languageOutput.length - 1]));
+
+                        ///////////////Audio format
+                        this.platform.log.debug(rawData.audio.information);
+                        let videoAudioInfo = rawData.audio.information.split(" channel ")
+                        let videoAudioInfo0 = videoAudioInfo[0].split(' ')
+                        let audioText = '';
+                        for (let i = 1; i < videoAudioInfo0.length; i++) {
+                            audioText += videoAudioInfo0[i] + ' ';
+                        }
+                        this.newAudioFormat(this.nameLengthCheck('Sound: ' + audioText + videoAudioInfo[1]));
+
+                        ////////////////////Subtiles////////////////////////////
+                        let subtitlesOn = rawData.subtitle.information;
+                        if (subtitlesOn == 'Off') {
+                            this.newSubtitle(this.nameLengthCheck('Subtitles: ' + ' File Size: ' + movieFileSize));
+
+                        }
+                        else {
+                            subtitlesOn = subtitlesOn.split(' ');
+                            this.newSubtitle(this.nameLengthCheck('Subtitles: ' + subtitlesOn[0] + ' ' + subtitlesOn[subtitlesOn.length - 1] + ', File Size: ' + movieFileSize));
+                        }
                     }
                     else {
-                        this.newVideoFormat(rawData.video.formt + " " + Math.round(rawData.video.fps * 1000) / 1000 + "fps");
-                        let languageOutput = rawData.audio.information.split(' ');
-                        this.platform.log.debug(Object.values(languageOutput)[1]);
-                        this.newLanguage(Object.values(languageOutput)[1]);
+
+                        let videoHeight = rawData.video.height;
+                        let videoWitdth = rawData.video.width;
+                        let framesPerSecond = Math.round(rawData.video.fps * 1000) / 1000;
+                        /////
+                        let movieAspectRatio = videoWitdth + 'x' + videoHeight;
+                        let movieInfo = '';
+                        if (videoHeight >= 2160) {
+                            movieInfo = '4K Video (' + movieAspectRatio + ')';
+                        }
+                        else if (videoHeight > 1080) {
+                            movieInfo = 'UHD Video (' + movieAspectRatio + ')';
+                        }
+                        else if (videoHeight == 1080) {
+                            movieInfo = 'Full HD Video (' + movieAspectRatio + ')';
+                        }
+                        else if (videoHeight == 720) {
+                            movieInfo = 'HD Video (' + movieAspectRatio + ')';
+                        }
+                        else {
+                            movieInfo = 'SD Video (' + movieAspectRatio + ')';
+                        }
+
+                        this.newVideoFormat(this.nameLengthCheck(movieInfo + ' at ' + framesPerSecond + ' Hz'));
+
+                        ///////////////Audio format
+                        this.platform.log.debug(rawData.audio.information);
+                        let videoAudioInfo = rawData.audio.information.split(" ")
+                        this.platform.log.debug(Object.values(videoAudioInfo)[1] + ' ' + '(' + videoAudioInfo[0] + ')');
+
+                        this.newLanguage(this.nameLengthCheck('Audio: ' + Object.values(videoAudioInfo)[1] + ' ' + '(' + videoAudioInfo[0] + ')'));
+                        let audioText = '';
+                        for (let i = 2; i < videoAudioInfo.length; i++) {
+                            audioText += videoAudioInfo[i] + ' ';
+                        }
+                        this.newAudioFormat(this.nameLengthCheck('Sound: ' + audioText));
+
+                        ////////////////////Subtiles////////////////////////////
+                        this.newSubtitle('Additional Information');
+                        let subtitlesOn = rawData.subtitle.information;
+                        subtitlesOn = subtitlesOn.split(' ');
+                        this.newSubtitle(this.nameLengthCheck('Subtitles: ' + subtitlesOn[0]));
+
                     }
+                    //////////////////////////////////////////////////////////////
                 }
             }
         }
@@ -2105,54 +2566,37 @@ class zidooAccessory {
                 this.platform.log.debug(rawData);
                 ////////Playback Status
                 //////////////////Media Current position
-                this.newMovieTime(parseInt(rawData.position));
+                this.movieRemaining = parseInt(rawData.duration / 1000);
+                this.newMovieTime(parseInt(rawData.position) / 1000);
                 ////////////////////Media elapsed time////////////////////////////
-                /*
-                let elapsedRuntimeNumber = this.secondsToTime(parseInt(rawData.position) / 1000);
-                if (elapsedRuntimeNumber.startsWith('0')) {
-                    elapsedRuntimeNumber = elapsedRuntimeNumber.substring(1);
-                    this.newElapsedTime(elapsedRuntimeNumber);
-                }
-                else {
-                    this.newElapsedTime(elapsedRuntimeNumber);
-                }
-                */
+                this.newSubtitle('Audio Channels: ' + rawData.playingMusic.channels + ', ' + 'Sample Rate: ' + rawData.playingMusic.sampleRate);
                 //////////////Audio format////////////////////////
-                this.newVideoFormat(rawData.playingMusic.extension);
+                this.newVideoFormat('Format: ' + rawData.playingMusic.extension);
                 ///////////////Audio Bitrate
-                this.newAudioFormat(rawData.playingMusic.bitrate);
+                this.newAudioFormat('Bitrate: ' + rawData.playingMusic.bitrate);
                 //////////Audio file size
-                this.newLanguage(rawData.playingMusic.fileSize);
+                this.newLanguage('File Size: ' + rawData.playingMusic.fileSize);
                 //////////////////////Media Name///////////////////////////////
-                let songTitle = rawData.playingMusic.artist + " - " + rawData.playingMusic.title
+                let songTitle = rawData.playingMusic.title + " - " + rawData.playingMusic.artist;
                 /// this.platform.log(songTitle.length)
-                if (songTitle.length >= 64) {
-                    this.newInputName(songTitle.slice(0, 60) + "...")
-                }
-                else {
-                    this.newInputName(rawData.playingMusic.artist + " - " + rawData.playingMusic.title);
-                }
+                this.newInputName(this.nameLengthCheck(songTitle));
                 //////////Media runtime////////////////////
-                this.movieRemaining = parseInt(rawData.duration);
                 let runtimeNumber = this.secondsToTime(parseInt(rawData.duration) / 1000);
                 if (runtimeNumber.startsWith('0')) {
                     runtimeNumber = runtimeNumber.substring(1);
                 }
                 this.newInputDuration(runtimeNumber);
             }
-            else {
-
-            }
-
         }
-        else {
-
+    }
+    ////Name Check
+    nameLengthCheck(newName) {
+        if (newName.length >= 64) {
+            newName = newName.slice(0, 60) + '...';
         }
-
-
+        return newName;
     }
     ///Query////////////////////////////////////////////////////////////////////////////////////////////////////
-
     query(qName) {
         let key;
         key = "http://" + this.ZIDOO_IP + ":" + this.ZIDOO_PORT + "/";
@@ -2166,6 +2610,9 @@ class zidooAccessory {
                 break;
             case 'PLAYBACK STATUS':
                 key += 'ZidooVideoPlay/getPlayStatus';
+                break;
+            case 'VOLUME STATUS':
+                key += 'ZidooControlCenter/RemoteControl/changeVolume?type=3';
                 break;
         }
         return key;
@@ -2316,6 +2763,9 @@ class zidooAccessory {
         }
         else if (keyS.includes('getPlayStatus')) {
             keySent = 'Movie Information';
+        }
+        else if (keyS.includes('changeVolume')) {
+            keySent = 'Volume Status';
         }
         else if (keyS.includes('seek')) {
             keySent = 'Searching';
@@ -2493,25 +2943,25 @@ class zidooAccessory {
         this.newInputState(newInput);
     }
     turnOffAll() {
-
         this.newPowerState(false);
         this.newPlayBackState([false, false, false]);
         this.newInputState([false, false, false, false, false, false]);
         this.mediaDetailsReset();
         this.moviePlaying = false;
         this.musicPlaying = false;
-
+        this.newVolumeStatus(0);
     }
     mediaDetailsReset() {
         this.platform.log.debug("Reset details");
         this.showState = false;
         this.movieRemaining = 0;
+        this.movieElapsed = 0;
         this.newMovieTime(0);
-        this.newAudioFormat('Audio Format');
+        this.newAudioFormat('Audio Information');
         this.newInputName('Media Title');
         this.newInputDuration('Runtime');
-        this.newElapsedTime('Elapsed Time');
-        this.newVideoFormat('Video Format');
+        this.newSubtitle('Additional Information');
+        this.newVideoFormat('Video Information');
         this.newLanguage('Audio Language');
 
     }

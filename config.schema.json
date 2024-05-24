@@ -53,7 +53,7 @@
         "required": false
       },
       "standby": {
-        "title": "Enable PowerOff mode instead of Standbay Mode",
+        "title": "Enable PowerOff mode instead of Standby Mode",
         "type": "boolean",
         "required": false
       },
@@ -62,8 +62,18 @@
         "type": "boolean",
         "required": false
       },
+      "volume": {
+        "title": "Add Volume service as a dimmer",
+        "type": "boolean",
+        "required": false
+      },
       "mediaButtons": {
         "title": "Add Media Remote Control buttons (Next, Previous, Forward, Rewind)",
+        "type": "boolean",
+        "required": false
+      },
+      "remainMovieTimer": {
+        "title": "Add Movie Timer",
         "type": "boolean",
         "required": false
       },
@@ -217,7 +227,7 @@
         "type": "boolean",
         "required": false
       },
-      "ScreenshotB": {
+      "screenshotB": {
         "title": "Add the Screenshot button",
         "type": "boolean",
         "required": false
@@ -234,6 +244,24 @@
       },
       "autoIPMac": {
         "title": "Set the IP and MAC addresses manually. Use this option if the device cannot be found automatically",
+        "type": "boolean",
+        "required": false,
+        "default": false
+      },
+      "changeDimmersToFan": {
+        "title": "Enable this if you would like to change the Volume and Movie Progress from Dimmer to Fan. This option is useful to avoid issues with Siri commands like 'Turn off all the lights'",
+        "type": "boolean",
+        "required": false,
+        "default": false
+      },
+      "infoToMenu": {
+        "title": "Change Info button to Menu button",
+        "type": "boolean",
+        "required": false,
+        "default": false
+      },
+      "removePlayback": {
+        "title": "Remove Play, Pause, and Stop buttons",
         "type": "boolean",
         "required": false,
         "default": false
@@ -308,6 +336,9 @@
       "expanded": true,
       "items": [
         {
+          "key": "volume"
+        },
+        {
           "key": "mediaButtons"
         },
         {
@@ -315,6 +346,18 @@
         },
         {
           "key": "movieControl"
+        },
+        {
+          "key": "remainMovieTimer"
+        },
+        {
+          "key": "changeDimmersToFan"
+        },
+        {
+          "key": "infoToMenu"
+        },
+        {
+          "key": "removePlayback"
         }
       ]
     },

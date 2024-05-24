@@ -1,7 +1,7 @@
 {
   "displayName": "Homebridge Zidoo Z9X",
   "name": "homebridge-zidoo-androidtv",
-  "version": "2.0.1",
+  "version": "3.1.0",
   "description": "Homebridge Plugin to control your Zidoo Z9X.",
   "license": "MIT",
   "repository": {
@@ -38,6 +38,12 @@
     "ts-node": "^9.0.0",
     "typescript": "^4.0.5"
   },
+  "funding": [
+    {
+      "type": "paypal",
+      "url": "https://paypal.me/carlosgamezv"
+    }
+  ],
   "homepage": "https://github.com/carlosgamezvillegas/homebridge-zidoo-androidtv#readme",
   "author": "Carlos Gamez"
 }
