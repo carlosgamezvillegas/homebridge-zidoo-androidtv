@@ -8,6 +8,8 @@
 [![mit-license](https://badgen.net/npm/license/lodash)](https://github.com/merdok/homebridge-zidoo-androidtv/blob/master/LICENSE)
 </span>
 
+</span>
+
 # What is this?
 
 `homebrige-zidoo-androidtv` is a plugin for Homebridge to Control your Zidoo Z9X from your Home app. It should work with most Zidoo boxes.
