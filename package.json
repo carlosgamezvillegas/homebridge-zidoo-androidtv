@@ -1,8 +1,8 @@
 {
   "displayName": "Homebridge Zidoo Z9X",
   "name": "homebridge-zidoo-androidtv",
-  "version": "3.1.0",
-  "description": "Homebridge Plugin to control your Zidoo Z9X.",
+  "version": "5.0.1",
+  "description": "Homebridge Plugin to control your Zidoo player.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -13,9 +13,12 @@
   },
   "engines": {
     "node": ">=16.13.0",
-    "homebridge": ">=1.3.8"
+    "homebridge": ">=1.3.8 || ^2.0.0-beta.0"
   },
   "main": "index.js",
+  "scripts": {
+    "test": "node test/index.logic.test.js"
+  },
   "keywords": [
     "homebridge-plugin",
     "homebridge-zidoo",
